@@ -41,6 +41,24 @@ fn main() {
         dur1 += run1();
         dur2 += run2();
     }
-    println!("Test 1: {:?}", dur1 / iter_count / 3);
-    println!("Test 2: {:?}", dur2 / iter_count / 3);
+    let time_ns1 = dur1.as_nanos() / iter_count / 3;
+    let time_ns2 = dur2.as_nanos() / iter_count / 3;
+
+    if time_ns1 == 0 {
+        println!(
+            "{:.5}ns",
+            (dur1.as_nanos() as f64) / iter_count as f64 / 3.0
+        );
+    } else {
+        println!("{:?}", time_ns1);
+    }
+
+    if time_ns2 == 0 {
+        println!(
+            "{:.5}ns",
+            (dur2.as_nanos() as f64) / iter_count as f64 / 3.0
+        );
+    } else {
+        println!("{:?}", time_ns2);
+    }
 }
