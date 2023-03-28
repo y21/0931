@@ -35,3 +35,14 @@ pub fn strip_header_stderr(input: &str) -> &str {
         unreachable!("{input}")
     }
 }
+
+pub fn get_worker_path() -> &'static str {
+    #[cfg(debug_assertions)]
+    {
+        "./target/debug/worker"
+    }
+    #[cfg(not(debug_assertions))]
+    {
+        "./target/release/worker"
+    }
+}

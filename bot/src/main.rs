@@ -1,5 +1,7 @@
+use std::sync::Arc;
 use std::time::Duration;
 
+use ipc2_host::workerset::TimeoutAction;
 use poise::samples::HelpConfiguration;
 use poise::serenity_prelude::GatewayIntents;
 use poise::CodeBlock;
@@ -7,6 +9,8 @@ use poise::EditTracker;
 use poise::Framework;
 use poise::FrameworkOptions;
 use poise::PrefixFrameworkOptions;
+use shared::ClientMessage;
+use shared::HostMessage;
 
 mod godbolt;
 mod playground;
@@ -14,7 +18,7 @@ mod state;
 mod util;
 
 type State = state::State;
-type PoiseContext<'a> = poise::Context<'a, State, anyhow::Error>;
+type PoiseContext<'a> = poise::Context<'a, Arc<State>, anyhow::Error>;
 
 /// Executes a Rust codeblock
 ///
@@ -99,6 +103,28 @@ async fn run_asmdiff(cx: PoiseContext<'_>, cb1: CodeBlock, cb2: CodeBlock) -> an
     Ok(())
 }
 
+const MAX_TIME: Duration = Duration::from_secs(5);
+
+#[poise::command(prefix_command, track_edits, rename = "js")]
+async fn run_js(cx: PoiseContext<'_>, cb: CodeBlock) -> anyhow::Result<()> {
+    let ClientMessage::EvalResponse(message) = cx
+        .data()
+        .workers
+        .send_timeout(HostMessage::Eval(cb.code), MAX_TIME, TimeoutAction::Restart)
+        .await?;
+
+    let message = util::codeblock_with_lang(
+        "js",
+        match &message {
+            Ok(x) => x,
+            Err(x) => x,
+        },
+    );
+    cx.say(message).await?;
+
+    Ok(())
+}
+
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
     tracing_subscriber::fmt::init();
@@ -111,7 +137,7 @@ async fn main() -> anyhow::Result<()> {
         .options(FrameworkOptions {
             allowed_mentions: None,
             prefix_options: PrefixFrameworkOptions {
-                prefix: Some(",".into()),
+                prefix: Some(",,".into()),
                 edit_tracker: Some(EditTracker::for_timespan(Duration::from_secs(3600))),
                 ..Default::default()
             },
@@ -122,10 +148,13 @@ async fn main() -> anyhow::Result<()> {
                 run_asm(),
                 run_asmdiff(),
                 run_miri(),
+                run_js(),
             ],
             ..Default::default()
         })
-        .setup(|_ctx, _ready, _framework| Box::pin(async move { Ok(State::new()) }));
+        .setup(|_ctx, _ready, _framework| {
+            Box::pin(async move { Ok(Arc::new(State::new().await?)) })
+        });
 
     tracing::info!("Running poise");
     framework.run().await?;
