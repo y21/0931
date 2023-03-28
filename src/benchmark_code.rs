@@ -50,7 +50,7 @@ fn main() {
             (dur1.as_nanos() as f64) / iter_count as f64 / 3.0
         );
     } else {
-        println!("{:?}", time_ns1);
+        println!("{:?}", dur1 / iter_count as u32 / 3);
     }
 
     if time_ns2 == 0 {
@@ -59,6 +59,6 @@ fn main() {
             (dur2.as_nanos() as f64) / iter_count as f64 / 3.0
         );
     } else {
-        println!("{:?}", time_ns2);
+        println!("{:?}", dur2 / iter_count as u32 / 3);
     }
 }

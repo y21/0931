@@ -40,7 +40,7 @@ pub async fn get_asm(client: &Client, input: String) -> anyhow::Result<GodboltRe
             "source": input,
             "compiler": "nightly",
             "options": {
-                "userArguments": "-Copt-level=3 -Clto=on -Ctarget-feature=+sse3,+avx"
+                "userArguments": "-Copt-level=3 -Clto=on -Ctarget-feature=+sse3,+avx -Ctarget-cpu=native"
             },
             "lang": "rust",
             "allowStoreCodeDebug": true

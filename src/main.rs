@@ -25,7 +25,10 @@ async fn run_rust(cx: PoiseContext<'_>, code: CodeBlock) -> anyhow::Result<()> {
     let CodeBlock { code, .. } = code;
 
     let response = cx.data().run_code(code).await?;
-    cx.say(util::codeblock(&response.output())).await?;
+    cx.say(util::codeblock(util::strip_header_stderr(
+        &response.output(),
+    )))
+    .await?;
 
     Ok(())
 }
@@ -34,7 +37,22 @@ async fn run_rust(cx: PoiseContext<'_>, code: CodeBlock) -> anyhow::Result<()> {
 #[poise::command(prefix_command, track_edits, broadcast_typing, rename = "bench")]
 async fn run_bench(cx: PoiseContext<'_>, test1: CodeBlock, test2: CodeBlock) -> anyhow::Result<()> {
     let response = cx.data().bench_code(test1.code, test2.code).await?;
-    cx.say(util::codeblock(&response.output())).await?;
+    cx.say(util::codeblock(util::strip_header_stderr(
+        &response.output(),
+    )))
+    .await?;
+
+    Ok(())
+}
+
+/// Runs a codeblock under miri, an interpreter that checks for memory errors
+#[poise::command(prefix_command, track_edits, broadcast_typing, rename = "miri")]
+async fn run_miri(cx: PoiseContext<'_>, block: CodeBlock) -> anyhow::Result<()> {
+    let response = playground::run_miri(&cx.data().reqwest, block.code).await?;
+    cx.say(util::codeblock(util::strip_header_stderr(
+        &response.output(),
+    )))
+    .await?;
 
     Ok(())
 }
@@ -103,6 +121,7 @@ async fn main() -> anyhow::Result<()> {
                 run_bench(),
                 run_asm(),
                 run_asmdiff(),
+                run_miri(),
             ],
             ..Default::default()
         })
