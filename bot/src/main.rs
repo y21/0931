@@ -107,6 +107,8 @@ const MAX_TIME: Duration = Duration::from_secs(5);
 
 #[poise::command(prefix_command, track_edits, rename = "js")]
 async fn run_js(cx: PoiseContext<'_>, cb: CodeBlock) -> anyhow::Result<()> {
+    tracing::info!(%cb.code);
+
     let ClientMessage::EvalResponse(message) = cx
         .data()
         .workers
