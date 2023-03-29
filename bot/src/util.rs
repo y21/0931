@@ -65,6 +65,7 @@ pub fn get_temp() -> anyhow::Result<Option<f64>> {
         let output = String::from_utf8(stdout).context("vcgencmd returned invalid utf-8")?;
 
         let (_, num) = output
+            .trim_end()
             .trim_end_matches("'C")
             .split_once('=')
             .with_context(|| {
