@@ -22,7 +22,7 @@ pub struct MiriBody {
 
 #[derive(Deserialize, Debug)]
 pub struct PlaygroundResponse {
-    success: bool,
+    // success: bool,
     stdout: String,
     stderr: String,
 }

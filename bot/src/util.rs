@@ -1,7 +1,6 @@
-use std::borrow::Cow;
-
 use once_cell::sync::Lazy;
 use regex::Regex;
+use std::borrow::Cow;
 
 pub fn codeblock(input: &str) -> String {
     format!("```rs\n{input}\n```")
@@ -44,5 +43,31 @@ pub fn get_worker_path() -> &'static str {
     #[cfg(not(debug_assertions))]
     {
         "./target/release/worker"
+    }
+}
+
+pub fn get_temp() -> anyhow::Result<Option<u64>> {
+    #[cfg(target_arch = "aarch64-unknown-linux-gnu")]
+    {
+        let Output { status, stdout, .. } = Command::new("/usr/bin/vcgencmd")
+            .arg("measure_temp")
+            .output()?;
+
+        ensure!(status.success());
+
+        tracing::debug!(?stdout, "Parsing utf-8");
+
+        let output = String::from_utf8(stdout).context("vcgencmd returned invalid utf-8")?;
+
+        let (_, num) = output.split_once('=').with_context(|| {
+            tracing::error!(%output, "Wrong format");
+            "vcgencmd returned wrong format"
+        })?;
+
+        Ok(Some(num.parse()?))
+    }
+    #[cfg(not(target_arch = "aarch64-unknown-linux-gnu"))]
+    {
+        Ok(None)
     }
 }

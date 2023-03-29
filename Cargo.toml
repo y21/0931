@@ -1,2 +1,6 @@
 [workspace]
 members = ["bot", "worker", "shared"]
+
+[profile.release]
+lto = "fat"
+codegen-units = 1

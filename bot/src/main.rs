@@ -1,6 +1,10 @@
+use std::fmt::Write;
 use std::sync::Arc;
 use std::time::Duration;
 
+use human_size::Byte;
+use human_size::Megabyte;
+use human_size::SpecificSize;
 use ipc2_host::workerset::TimeoutAction;
 use poise::samples::HelpConfiguration;
 use poise::serenity_prelude::GatewayIntents;
@@ -11,6 +15,8 @@ use poise::FrameworkOptions;
 use poise::PrefixFrameworkOptions;
 use shared::ClientMessage;
 use shared::HostMessage;
+use sysinfo::CpuExt;
+use sysinfo::SystemExt;
 
 mod godbolt;
 mod playground;
@@ -127,6 +133,46 @@ async fn run_js(cx: PoiseContext<'_>, cb: CodeBlock) -> anyhow::Result<()> {
     Ok(())
 }
 
+#[poise::command(prefix_command, track_edits, rename = "info")]
+async fn run_info(cx: PoiseContext<'_>) -> anyhow::Result<()> {
+    let output = {
+        let temp = util::get_temp()?
+            .map(|t| t.to_string())
+            .unwrap_or_else(|| "<unsupported>".into());
+
+        let mut sys = cx.data().system.lock().unwrap();
+        sys.refresh_all();
+
+        let mut output = format!("```\nTemperature: {temp}\n");
+
+        for (id, cpu) in sys.cpus().iter().enumerate() {
+            let _ = writeln!(output, "CPU #{id}: {:.2}%", cpu.cpu_usage());
+        }
+
+        let fmt_size = |bytes| {
+            SpecificSize::new(bytes as f64, Byte)
+                .unwrap()
+                .into::<Megabyte>()
+        };
+
+        let total = fmt_size(sys.total_memory());
+        let avail = fmt_size(sys.available_memory());
+        let ratio = (avail.to_bytes() as f64 / total.to_bytes() as f64) * 100.0;
+
+        let _ = writeln!(
+            output,
+            "Memory: {:.2}/{:.2} ({:.2}%)\n```",
+            avail, total, ratio
+        );
+
+        output
+    };
+
+    cx.say(output).await?;
+
+    Ok(())
+}
+
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
     tracing_subscriber::fmt::init();
@@ -139,7 +185,7 @@ async fn main() -> anyhow::Result<()> {
         .options(FrameworkOptions {
             allowed_mentions: None,
             prefix_options: PrefixFrameworkOptions {
-                prefix: Some(",".into()),
+                prefix: Some(",,".into()),
                 edit_tracker: Some(EditTracker::for_timespan(Duration::from_secs(3600))),
                 ..Default::default()
             },
@@ -151,6 +197,7 @@ async fn main() -> anyhow::Result<()> {
                 run_asmdiff(),
                 run_miri(),
                 run_js(),
+                run_info(),
             ],
             ..Default::default()
         })
