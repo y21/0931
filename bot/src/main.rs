@@ -156,7 +156,7 @@ async fn run_info(cx: PoiseContext<'_>) -> anyhow::Result<()> {
         };
 
         let total = fmt_size(sys.total_memory());
-        let avail = fmt_size(sys.available_memory());
+        let avail = fmt_size(sys.free_memory());
         let ratio = (avail.to_bytes() as f64 / total.to_bytes() as f64) * 100.0;
 
         let _ = writeln!(

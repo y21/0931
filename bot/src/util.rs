@@ -47,7 +47,7 @@ pub fn get_worker_path() -> &'static str {
 }
 
 pub fn get_temp() -> anyhow::Result<Option<f64>> {
-    #[cfg(target_arch = "aarch64-unknown-linux-gnu")]
+    #[cfg(target_arch = "aarch64")]
     {
         let Output { status, stdout, .. } = Command::new("/usr/bin/vcgencmd")
             .arg("measure_temp")
@@ -69,7 +69,7 @@ pub fn get_temp() -> anyhow::Result<Option<f64>> {
 
         Ok(Some(num.parse()?))
     }
-    #[cfg(not(target_arch = "aarch64-unknown-linux-gnu"))]
+    #[cfg(not(target_arch = "aarch64"))]
     {
         Ok(None)
     }
