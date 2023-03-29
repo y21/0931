@@ -46,7 +46,7 @@ pub fn get_worker_path() -> &'static str {
     }
 }
 
-pub fn get_temp() -> anyhow::Result<Option<u64>> {
+pub fn get_temp() -> anyhow::Result<Option<f64>> {
     #[cfg(target_arch = "aarch64-unknown-linux-gnu")]
     {
         let Output { status, stdout, .. } = Command::new("/usr/bin/vcgencmd")
@@ -59,10 +59,13 @@ pub fn get_temp() -> anyhow::Result<Option<u64>> {
 
         let output = String::from_utf8(stdout).context("vcgencmd returned invalid utf-8")?;
 
-        let (_, num) = output.split_once('=').with_context(|| {
-            tracing::error!(%output, "Wrong format");
-            "vcgencmd returned wrong format"
-        })?;
+        let (_, num) = output
+            .trim_end_matches("'C")
+            .split_once('=')
+            .with_context(|| {
+                tracing::error!(%output, "Wrong format");
+                "vcgencmd returned wrong format"
+            })?;
 
         Ok(Some(num.parse()?))
     }
