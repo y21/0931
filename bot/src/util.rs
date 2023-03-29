@@ -49,6 +49,7 @@ pub fn get_worker_path() -> &'static str {
 pub fn get_temp() -> anyhow::Result<Option<f64>> {
     #[cfg(target_arch = "aarch64")]
     {
+        use anyhow::ensure;
         use anyhow::Context;
         use std::process::Command;
         use std::process::Output;
