@@ -1,6 +1,12 @@
 use once_cell::sync::Lazy;
+use poise::async_trait;
+use poise::serenity_prelude::Context;
+use poise::serenity_prelude::Message;
+use poise::CodeBlock;
+use poise::PopArgument;
 use regex::Regex;
 use std::borrow::Cow;
+use std::error::Error;
 
 pub fn codeblock(input: &str) -> String {
     format!("```rs\n{input}\n```")
@@ -81,5 +87,26 @@ pub fn get_temp() -> anyhow::Result<Option<f64>> {
     #[cfg(not(target_arch = "aarch64"))]
     {
         Ok(None)
+    }
+}
+
+pub struct CodeBlockOrRest(pub String);
+
+#[async_trait]
+impl<'a> PopArgument<'a> for CodeBlockOrRest {
+    async fn pop_from(
+        args: &'a str,
+        attachment_index: usize,
+        cx: &Context,
+        msg: &Message,
+    ) -> Result<(&'a str, usize, Self), (Box<dyn Error + Send + Sync + 'static>, Option<String>)>
+    {
+        if let Ok((rest, index, CodeBlock { code, .. })) =
+            CodeBlock::pop_from(args, attachment_index, cx, msg).await
+        {
+            return Ok((rest, index, CodeBlockOrRest(code)));
+        }
+
+        Ok(("", attachment_index, CodeBlockOrRest(args.into())))
     }
 }

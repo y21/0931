@@ -16,6 +16,7 @@ use crate::godbolt;
 use crate::playground;
 use crate::state::State;
 use crate::util;
+use crate::util::CodeBlockOrRest;
 use crate::PoiseContext;
 
 /// Executes a Rust codeblock
@@ -23,8 +24,8 @@ use crate::PoiseContext;
 /// The code can simply be an expression and the bot will automatically
 /// wrap it in a main function and a print statement.
 #[poise::command(prefix_command, track_edits, broadcast_typing)]
-pub async fn rust(cx: PoiseContext<'_>, block: CodeBlock) -> anyhow::Result<()> {
-    let response = playground::run_code(&cx.data().reqwest, block.code).await?;
+pub async fn rust(cx: PoiseContext<'_>, block: CodeBlockOrRest) -> anyhow::Result<()> {
+    let response = playground::run_code(&cx.data().reqwest, block.0).await?;
 
     cx.say(util::codeblock(util::strip_header_stderr(
         &response.output(),
@@ -53,8 +54,8 @@ pub async fn bench(
 
 /// Runs a codeblock under miri, an interpreter that checks for memory errors
 #[poise::command(prefix_command, track_edits, broadcast_typing)]
-pub async fn miri(cx: PoiseContext<'_>, block: CodeBlock) -> anyhow::Result<()> {
-    let response = playground::run_miri(&cx.data().reqwest, block.code).await?;
+pub async fn miri(cx: PoiseContext<'_>, block: CodeBlockOrRest) -> anyhow::Result<()> {
+    let response = playground::run_miri(&cx.data().reqwest, block.0).await?;
     cx.say(util::codeblock(util::strip_header_stderr(
         &response.output(),
     )))
@@ -113,17 +114,14 @@ const MAX_TIME: Duration = Duration::from_secs(5);
 
 /// Executes JavaScript code
 #[poise::command(prefix_command, track_edits)]
-pub async fn js(cx: PoiseContext<'_>, block: CodeBlock) -> anyhow::Result<()> {
-    tracing::info!(%block.code, "Send JS code to worker");
+pub async fn js(cx: PoiseContext<'_>, block: CodeBlockOrRest) -> anyhow::Result<()> {
+    let CodeBlockOrRest(code) = block;
+    tracing::info!(%code, "Send JS code to worker");
 
     let ClientMessage::EvalResponse(message) = cx
         .data()
         .workers
-        .send_timeout(
-            HostMessage::Eval(block.code),
-            MAX_TIME,
-            TimeoutAction::Restart,
-        )
+        .send_timeout(HostMessage::Eval(code), MAX_TIME, TimeoutAction::Restart)
         .await?;
 
     cx.say(util::codeblock_with_lang(
