@@ -1,9 +1,14 @@
+// taken from: https://github.com/y21/dash/blob/master/crates/dash_rt/js/inspect.js
+// consider changing it upstream too if you make a change here
+
 const is = {
     string: (value) => typeof value === 'string',
     number: (value) => typeof value === 'number',
     boolean: (value) => typeof value === 'boolean',
     nullish: (value) => value === null || value === undefined,
     // error: (value) => value instanceof Error ,
+    // ^ do this once it works again upstream
+    // right now the suberror types don't inherit from Error
     error: (value) => [
         Error,
         TypeError,

@@ -1,6 +1,7 @@
 use reqwest::Client;
 use serde::Deserialize;
 use serde::Serialize;
+use serenity::json::json;
 
 #[derive(Serialize)]
 pub struct PlaygroundBody {
@@ -14,15 +15,8 @@ pub struct PlaygroundBody {
     backtrace: bool,
 }
 
-#[derive(Serialize)]
-pub struct MiriBody {
-    code: String,
-    edition: String,
-}
-
 #[derive(Deserialize, Debug)]
 pub struct PlaygroundResponse {
-    // success: bool,
     stdout: String,
     stderr: String,
 }
@@ -35,6 +29,22 @@ impl PlaygroundResponse {
 
 const PLAYGROUND_RUN_URL: &str = "https://play.rust-lang.org/execute";
 const MIRI_RUN_URL: &str = "https://play.rust-lang.org/miri";
+
+fn wrap_in_println(input: String) -> String {
+    if input.contains("fn main") {
+        input
+    } else {
+        format!(
+            r#"
+fn main() {{
+    println!("{{:?}}", {{
+        {input}
+    }});
+}}
+    "#
+        )
+    }
+}
 
 async fn send_raw_playground_request(
     client: &Client,
@@ -52,22 +62,6 @@ async fn send_raw_playground_request(
 }
 
 pub async fn run_code(client: &Client, code: String) -> anyhow::Result<PlaygroundResponse> {
-    fn transform_code(input: String) -> String {
-        if input.contains("fn main") {
-            input
-        } else {
-            format!(
-                r#"
-fn main() {{
-    println!("{{:?}}", {{
-        {input}
-    }});
-}}
-        "#
-            )
-        }
-    }
-
     send_raw_playground_request(
         client,
         PlaygroundBody {
@@ -76,7 +70,7 @@ fn main() {{
             edition: "2021".into(),
             crate_type: "bin".into(),
             tests: false,
-            code: transform_code(code),
+            code: wrap_in_println(code),
             backtrace: false,
         },
     )
@@ -111,28 +105,12 @@ pub async fn bench_code(
 }
 
 pub async fn run_miri(client: &Client, code: String) -> anyhow::Result<PlaygroundResponse> {
-    fn transform_code(input: String) -> String {
-        if input.contains("fn main") {
-            input
-        } else {
-            format!(
-                r#"
-fn main() {{
-    println!("{{:?}}", {{
-        {input}
-    }});
-}}
-        "#
-            )
-        }
-    }
-
     client
         .post(MIRI_RUN_URL)
-        .json(&MiriBody {
-            code: transform_code(code),
-            edition: "2021".into(),
-        })
+        .json(&json!({
+            "code": wrap_in_println(code),
+            "edition": "2021",
+        }))
         .send()
         .await?
         .error_for_status()?

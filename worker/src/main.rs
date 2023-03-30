@@ -51,8 +51,7 @@ async fn main() -> anyhow::Result<()> {
                     };
 
                     let output = match vm.eval(&code, Default::default()) {
-                        Ok(v) => fmt_value(&inspect, v, &mut vm).map_err(|err| err.to_string()),
-                        Err(EvalError::Exception(v)) => {
+                        Ok(v) | Err(EvalError::Exception(v)) => {
                             fmt_value(&inspect, v, &mut vm).map_err(|err| err.to_string())
                         }
                         Err(err) => Err(err.to_string()),
@@ -63,7 +62,7 @@ async fn main() -> anyhow::Result<()> {
                     }
                 }
             },
-            Job::Unidirectional { .. } => unreachable!(),
+            Job::Unidirectional { .. } => unreachable!("there are no unidirectional messages"),
         }
     }
 

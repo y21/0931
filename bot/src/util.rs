@@ -17,6 +17,9 @@ pub fn strip_ansi(input: &str) -> Cow<'_, str> {
 pub fn strip_header_stderr(input: &str) -> &str {
     let input = input.trim_start_matches("   Compiling playground v0.0.1 (/playground)");
     let input = input.trim_start();
+
+    // if the next section starts with 'Finished', it implies that we can safely strip away
+    // the next 2 lines
     if input.starts_with("Finished") {
         let mut newlines = 0;
         input.trim_start_matches(move |c| {
