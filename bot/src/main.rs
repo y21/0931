@@ -36,14 +36,14 @@ async fn main() -> anyhow::Result<()> {
                 ..Default::default()
             },
             commands: vec![
-                commands::run_rust(),
-                commands::run_help(),
-                commands::run_bench(),
-                commands::run_asm(),
-                commands::run_asmdiff(),
-                commands::run_miri(),
-                commands::run_js(),
-                commands::run_info(),
+                commands::rust(),
+                commands::help(),
+                commands::bench(),
+                commands::asm(),
+                commands::asmdiff(),
+                commands::miri(),
+                commands::js(),
+                commands::info(),
             ],
             ..Default::default()
         })

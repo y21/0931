@@ -22,8 +22,8 @@ use crate::PoiseContext;
 ///
 /// The code can simply be an expression and the bot will automatically
 /// wrap it in a main function and a print statement.
-#[poise::command(prefix_command, track_edits, broadcast_typing, rename = "run")]
-pub async fn run_rust(cx: PoiseContext<'_>, block: CodeBlock) -> anyhow::Result<()> {
+#[poise::command(prefix_command, track_edits, broadcast_typing)]
+pub async fn rust(cx: PoiseContext<'_>, block: CodeBlock) -> anyhow::Result<()> {
     let response = playground::run_code(&cx.data().reqwest, block.code).await?;
 
     cx.say(util::codeblock(util::strip_header_stderr(
@@ -35,8 +35,8 @@ pub async fn run_rust(cx: PoiseContext<'_>, block: CodeBlock) -> anyhow::Result<
 }
 
 /// Benchmarks two Rust codeblocks to see which one runs faster
-#[poise::command(prefix_command, track_edits, broadcast_typing, rename = "bench")]
-pub async fn run_bench(
+#[poise::command(prefix_command, track_edits, broadcast_typing)]
+pub async fn bench(
     cx: PoiseContext<'_>,
     block1: CodeBlock,
     block2: CodeBlock,
@@ -52,8 +52,8 @@ pub async fn run_bench(
 }
 
 /// Runs a codeblock under miri, an interpreter that checks for memory errors
-#[poise::command(prefix_command, track_edits, broadcast_typing, rename = "miri")]
-pub async fn run_miri(cx: PoiseContext<'_>, block: CodeBlock) -> anyhow::Result<()> {
+#[poise::command(prefix_command, track_edits, broadcast_typing)]
+pub async fn miri(cx: PoiseContext<'_>, block: CodeBlock) -> anyhow::Result<()> {
     let response = playground::run_miri(&cx.data().reqwest, block.code).await?;
     cx.say(util::codeblock(util::strip_header_stderr(
         &response.output(),
@@ -64,8 +64,8 @@ pub async fn run_miri(cx: PoiseContext<'_>, block: CodeBlock) -> anyhow::Result<
 }
 
 /// Help me
-#[poise::command(prefix_command, track_edits, rename = "help")]
-pub async fn run_help(cx: PoiseContext<'_>, command: Option<String>) -> anyhow::Result<()> {
+#[poise::command(prefix_command, track_edits)]
+pub async fn help(cx: PoiseContext<'_>, command: Option<String>) -> anyhow::Result<()> {
     let config = HelpConfiguration {
         extra_text_at_bottom:
             "You can edit your message to the bot and the bot will edit its response",
@@ -77,8 +77,8 @@ pub async fn run_help(cx: PoiseContext<'_>, command: Option<String>) -> anyhow::
 }
 
 /// Compile a codeblock and get the assembly
-#[poise::command(prefix_command, track_edits, rename = "asm")]
-pub async fn run_asm(cx: PoiseContext<'_>, blocks: Vec<CodeBlock>) -> anyhow::Result<()> {
+#[poise::command(prefix_command, track_edits)]
+pub async fn asm(cx: PoiseContext<'_>, blocks: Vec<CodeBlock>) -> anyhow::Result<()> {
     let mut output = String::new();
 
     for block in blocks {
@@ -91,8 +91,8 @@ pub async fn run_asm(cx: PoiseContext<'_>, blocks: Vec<CodeBlock>) -> anyhow::Re
 }
 
 /// Compile two codeblocks and diff them
-#[poise::command(prefix_command, track_edits, rename = "asmdiff")]
-pub async fn run_asmdiff(
+#[poise::command(prefix_command, track_edits)]
+pub async fn asmdiff(
     cx: PoiseContext<'_>,
     block1: CodeBlock,
     block2: CodeBlock,
@@ -111,9 +111,10 @@ pub async fn run_asmdiff(
 
 const MAX_TIME: Duration = Duration::from_secs(5);
 
-#[poise::command(prefix_command, track_edits, rename = "js")]
-pub async fn run_js(cx: PoiseContext<'_>, block: CodeBlock) -> anyhow::Result<()> {
-    tracing::info!(%block.code);
+/// Executes JavaScript code
+#[poise::command(prefix_command, track_edits)]
+pub async fn js(cx: PoiseContext<'_>, block: CodeBlock) -> anyhow::Result<()> {
+    tracing::info!(%block.code, "Send JS code to worker");
 
     let ClientMessage::EvalResponse(message) = cx
         .data()
@@ -137,8 +138,8 @@ pub async fn run_js(cx: PoiseContext<'_>, block: CodeBlock) -> anyhow::Result<()
     Ok(())
 }
 
-#[poise::command(prefix_command, track_edits, rename = "info")]
-pub async fn run_info(cx: PoiseContext<'_>) -> anyhow::Result<()> {
+#[poise::command(prefix_command, track_edits)]
+pub async fn info(cx: PoiseContext<'_>) -> anyhow::Result<()> {
     let output = {
         let temperature = util::get_temp()?
             .map(|t| t.to_string())
