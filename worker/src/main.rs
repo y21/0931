@@ -1,3 +1,5 @@
+use std::time::SystemTime;
+
 use anyhow::anyhow;
 use anyhow::bail;
 use dash_vm::eval::EvalError;
@@ -39,7 +41,17 @@ async fn main() -> anyhow::Result<()> {
         match job {
             Job::Bidirectional { data, tx } => match data {
                 HostMessage::Eval(code) => {
-                    let mut vm = Vm::new(VmParams::default());
+                    let params = VmParams::default()
+                        .set_math_random_callback(|_| Ok(rand::random()))
+                        .set_time_millis_callback(|_| {
+                            Ok(SystemTime::now()
+                                .duration_since(SystemTime::UNIX_EPOCH)
+                                .unwrap()
+                                .as_millis()
+                                .try_into()
+                                .unwrap())
+                        });
+                    let mut vm = Vm::new(params);
                     let inspect = {
                         const INSPECT_CODE: &str = include_str!("../js/inspect.js");
                         let mut sc = LocalScope::new(&mut vm);
