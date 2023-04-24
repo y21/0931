@@ -277,7 +277,7 @@ dependencies = [
 [[package]]
 name = "dash_compiler"
 version = "0.3.0"
-source = "git+https://github.com/y21/dash#748cf0af6651d7fbeee4e78eac327056695a7852"
+source = "git+https://github.com/y21/dash#605db2eb69e335c78a98e9607a14e5aee6b62360"
 dependencies = [
  "dash_lexer",
  "dash_log",
@@ -292,7 +292,7 @@ dependencies = [
 [[package]]
 name = "dash_lexer"
 version = "0.3.0"
-source = "git+https://github.com/y21/dash#748cf0af6651d7fbeee4e78eac327056695a7852"
+source = "git+https://github.com/y21/dash#605db2eb69e335c78a98e9607a14e5aee6b62360"
 dependencies = [
  "dash_middle",
  "either",
@@ -301,7 +301,7 @@ dependencies = [
 [[package]]
 name = "dash_log"
 version = "0.1.0"
-source = "git+https://github.com/y21/dash#748cf0af6651d7fbeee4e78eac327056695a7852"
+source = "git+https://github.com/y21/dash#605db2eb69e335c78a98e9607a14e5aee6b62360"
 dependencies = [
  "tracing",
 ]
@@ -309,7 +309,7 @@ dependencies = [
 [[package]]
 name = "dash_middle"
 version = "0.3.0"
-source = "git+https://github.com/y21/dash#748cf0af6651d7fbeee4e78eac327056695a7852"
+source = "git+https://github.com/y21/dash#605db2eb69e335c78a98e9607a14e5aee6b62360"
 dependencies = [
  "dash_regex",
  "derive_more",
@@ -322,7 +322,7 @@ dependencies = [
 [[package]]
 name = "dash_optimizer"
 version = "0.3.0"
-source = "git+https://github.com/y21/dash#748cf0af6651d7fbeee4e78eac327056695a7852"
+source = "git+https://github.com/y21/dash#605db2eb69e335c78a98e9607a14e5aee6b62360"
 dependencies = [
  "dash_log",
  "dash_middle",
@@ -331,7 +331,7 @@ dependencies = [
 [[package]]
 name = "dash_parser"
 version = "0.3.0"
-source = "git+https://github.com/y21/dash#748cf0af6651d7fbeee4e78eac327056695a7852"
+source = "git+https://github.com/y21/dash#605db2eb69e335c78a98e9607a14e5aee6b62360"
 dependencies = [
  "dash_log",
  "dash_middle",
@@ -341,7 +341,7 @@ dependencies = [
 [[package]]
 name = "dash_proc_macro"
 version = "0.1.0"
-source = "git+https://github.com/y21/dash#748cf0af6651d7fbeee4e78eac327056695a7852"
+source = "git+https://github.com/y21/dash#605db2eb69e335c78a98e9607a14e5aee6b62360"
 dependencies = [
  "proc-macro-crate",
  "proc-macro2",
@@ -352,7 +352,7 @@ dependencies = [
 [[package]]
 name = "dash_regex"
 version = "0.1.0"
-source = "git+https://github.com/y21/dash#748cf0af6651d7fbeee4e78eac327056695a7852"
+source = "git+https://github.com/y21/dash#605db2eb69e335c78a98e9607a14e5aee6b62360"
 dependencies = [
  "serde",
  "thiserror",
@@ -361,7 +361,7 @@ dependencies = [
 [[package]]
 name = "dash_vm"
 version = "0.3.0"
-source = "git+https://github.com/y21/dash#748cf0af6651d7fbeee4e78eac327056695a7852"
+source = "git+https://github.com/y21/dash#605db2eb69e335c78a98e9607a14e5aee6b62360"
 dependencies = [
  "ahash",
  "bitflags",
