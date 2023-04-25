@@ -30,6 +30,22 @@ impl Docs {
         })
     }
 
+    pub fn crate_struct_impl(&self, crate_id: usize, impl_id: &Id) -> Option<(&Item, &Impl)> {
+        self.crates[crate_id].index.get(impl_id).and_then(|i| {
+            Some((
+                i,
+                match &i.inner {
+                    ItemEnum::Impl(imp) => imp,
+                    _ => return None,
+                },
+            ))
+        })
+    }
+
+    pub fn crate_item(&self, crate_id: usize, item_id: &Id) -> Option<&Item> {
+        self.crates[crate_id].index.get(item_id)
+    }
+
     pub fn add_crate_json(&mut self, source: &str) -> Result<(), serde_json::Error> {
         let krate = serde_json::from_str(source)?;
         self.crates.push(krate);

@@ -277,6 +277,30 @@ fn struct_to_string(
             }
 
             out.push('}');
+            out.push_str("\nimpl ");
+            out.push_str(name);
+            out.push_str(" {\n");
+
+            for id in impls {
+                let (_, imp) = docs.crate_struct_impl(crate_id, id).unwrap();
+                if imp.trait_.is_some() {
+                    continue;
+                }
+
+                for id in &imp.items {
+                    let item = docs.crate_item(crate_id, id).unwrap();
+                    match &item.inner {
+                        ItemEnum::Function(f) => {
+                            out.push_str("  ");
+                            fn_to_string(out, f, item.name.as_deref().unwrap())?;
+                            out.push_str(";\n");
+                        }
+                        other => println!("??: {other:?}"),
+                    }
+                }
+            }
+
+            out.push('}');
         }
         StructKind::Unit => out.push(';'),
         _ => bail!("unit structs are not supported"),
@@ -322,9 +346,18 @@ fn fn_to_string(
             out.push_str(", ");
         }
 
-        out.push_str(name);
-        out.push_str(": ");
-        type_to_string(out, ty)?;
+        if name == "self" {
+            match ty {
+                Type::BorrowedRef { mutable, .. } if *mutable => out.push_str("&mut "),
+                Type::BorrowedRef { mutable, .. } if !*mutable => out.push('&'),
+                _ => {}
+            }
+            out.push_str("self");
+        } else {
+            out.push_str(name);
+            out.push_str(": ");
+            type_to_string(out, ty)?;
+        }
     }
     out.push(')');
     if let Some(output) = &decl.output {
@@ -373,34 +406,38 @@ fn type_to_string(out: &mut String, ty: &Type) -> anyhow::Result<()> {
             if let Some(args) = &path.args {
                 match &**args {
                     GenericArgs::AngleBracketed { args, .. } => {
-                        out.push('<');
-                        for (i, arg) in args.iter().enumerate() {
-                            if i != 0 {
-                                out.push_str(", ");
-                            }
+                        if !args.is_empty() {
+                            out.push('<');
+                            for (i, arg) in args.iter().enumerate() {
+                                if i != 0 {
+                                    out.push_str(", ");
+                                }
 
-                            match arg {
-                                GenericArg::Lifetime(lt) => {
-                                    out.push_str(&format!("'{}", lt));
-                                }
-                                GenericArg::Infer => out.push('_'),
-                                GenericArg::Type(ty) => type_to_string(out, ty)?,
-                                GenericArg::Const(c) => {
-                                    bail!("const generics not supported ({c:?})")
+                                match arg {
+                                    GenericArg::Lifetime(lt) => {
+                                        out.push_str(&format!("'{}", lt));
+                                    }
+                                    GenericArg::Infer => out.push('_'),
+                                    GenericArg::Type(ty) => type_to_string(out, ty)?,
+                                    GenericArg::Const(c) => {
+                                        bail!("const generics not supported ({c:?})")
+                                    }
                                 }
                             }
+                            out.push('>');
                         }
-                        out.push('>');
                     }
                     GenericArgs::Parenthesized { inputs, output } => {
-                        out.push('(');
-                        for (i, arg) in inputs.iter().enumerate() {
-                            if i != 0 {
-                                out.push_str(", ");
+                        if !inputs.is_empty() {
+                            out.push('(');
+                            for (i, arg) in inputs.iter().enumerate() {
+                                if i != 0 {
+                                    out.push_str(", ");
+                                }
+                                type_to_string(out, arg)?;
                             }
-                            type_to_string(out, arg)?;
+                            out.push(')');
                         }
-                        out.push(')');
                         if let Some(output) = output {
                             out.push_str(" -> ");
                             type_to_string(out, output)?;
