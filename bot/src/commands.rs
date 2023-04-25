@@ -13,6 +13,8 @@ use rustdoc_types::Function;
 use rustdoc_types::GenericArg;
 use rustdoc_types::GenericArgs;
 use rustdoc_types::ItemEnum;
+use rustdoc_types::Struct;
+use rustdoc_types::StructKind;
 use rustdoc_types::Type;
 use shared::ClientMessage;
 use shared::HostMessage;
@@ -21,6 +23,7 @@ use sublime_fuzzy::best_match;
 use sysinfo::CpuExt;
 use sysinfo::SystemExt;
 
+use crate::docs::Docs;
 use crate::godbolt;
 use crate::playground;
 use crate::state::State;
@@ -203,7 +206,8 @@ pub async fn fuzzy(cx: PoiseContext<'_>, query: String, search: String) -> anyho
 
 #[poise::command(prefix_command, track_edits)]
 pub async fn docs(cx: PoiseContext<'_>, query: String) -> anyhow::Result<()> {
-    let item = cx.data().docs.find(&query).context("Nothing found!")?;
+    let docs = &cx.data().docs;
+    let (item, crate_id) = docs.find(&query).context("Nothing found!")?;
 
     // unwrap is safe, checked by Docs::find
     let name = item.name.as_deref().unwrap();
@@ -212,52 +216,11 @@ pub async fn docs(cx: PoiseContext<'_>, query: String) -> anyhow::Result<()> {
     let mut response = String::from("```rs\npub ");
 
     match &item.inner {
-        ItemEnum::Function(Function {
-            decl,
-            generics,
-            header,
-            has_body: _,
-        }) => {
-            if header.async_ {
-                response.push_str("async ");
-            }
-            if header.const_ {
-                response.push_str("const ");
-            }
-            if header.unsafe_ {
-                response.push_str("unsafe ");
-            }
-            response.push_str("fn ");
-            response.push_str(name);
-            if !generics.params.is_empty() {
-                response.push('<');
-                for (i, param) in generics.params.iter().enumerate() {
-                    if i != 0 {
-                        response.push_str(", ");
-                    }
-                    response.push_str(&param.name);
-                }
-                response.push('>');
-            }
-
-            response.push('(');
-            for (i, (name, ty)) in decl.inputs.iter().enumerate() {
-                if i != 0 {
-                    response.push_str(", ");
-                }
-
-                response.push_str(name);
-                response.push_str(": ");
-                type_to_string(&mut response, ty)?;
-            }
-            response.push(')');
-            if let Some(out) = &decl.output {
-                response.push_str(" -> ");
-                type_to_string(&mut response, out)?;
-            }
-        }
+        ItemEnum::Function(f) => fn_to_string(&mut response, f, name)?,
+        ItemEnum::Struct(s) => struct_to_string(&mut response, s, name, crate_id, docs)?,
         _ => bail!("unsupported item type: `{:?}`", item.inner),
     }
+
     response.push_str("\n```\n");
 
     if let Some(docs) = &item.docs {
@@ -278,6 +241,96 @@ pub async fn docs(cx: PoiseContext<'_>, query: String) -> anyhow::Result<()> {
 
     cx.say(response).await?;
 
+    Ok(())
+}
+
+fn struct_to_string(
+    out: &mut String,
+    Struct {
+        kind,
+        generics,
+        impls,
+    }: &Struct,
+    name: &str,
+    crate_id: usize,
+    docs: &Docs,
+) -> anyhow::Result<()> {
+    out.push_str("struct ");
+    out.push_str(name);
+    match kind {
+        StructKind::Plain {
+            fields,
+            fields_stripped,
+        } => {
+            out.push_str(" {\n");
+            for field in fields.iter() {
+                out.push_str("  ");
+                let (item, ty) = docs.crate_struct_field(crate_id, field).unwrap();
+                out.push_str(item.name.as_deref().unwrap());
+                out.push_str(": ");
+                type_to_string(out, ty)?;
+                out.push_str(",\n");
+            }
+
+            if *fields_stripped {
+                out.push_str("  // private fields ommitted\n");
+            }
+
+            out.push('}');
+        }
+        StructKind::Unit => out.push(';'),
+        _ => bail!("unit structs are not supported"),
+    }
+    Ok(())
+}
+
+fn fn_to_string(
+    out: &mut String,
+    Function {
+        decl,
+        generics,
+        header,
+        has_body: _,
+    }: &Function,
+    name: &str,
+) -> anyhow::Result<()> {
+    if header.async_ {
+        out.push_str("async ");
+    }
+    if header.const_ {
+        out.push_str("const ");
+    }
+    if header.unsafe_ {
+        out.push_str("unsafe ");
+    }
+    out.push_str("fn ");
+    out.push_str(name);
+    if !generics.params.is_empty() {
+        out.push('<');
+        for (i, param) in generics.params.iter().enumerate() {
+            if i != 0 {
+                out.push_str(", ");
+            }
+            out.push_str(&param.name);
+        }
+        out.push('>');
+    }
+
+    out.push('(');
+    for (i, (name, ty)) in decl.inputs.iter().enumerate() {
+        if i != 0 {
+            out.push_str(", ");
+        }
+
+        out.push_str(name);
+        out.push_str(": ");
+        type_to_string(out, ty)?;
+    }
+    out.push(')');
+    if let Some(output) = &decl.output {
+        out.push_str(" -> ");
+        type_to_string(out, output)?;
+    }
     Ok(())
 }
 

@@ -18,6 +18,18 @@ impl Docs {
         Self { crates: Vec::new() }
     }
 
+    pub fn crate_struct_field(&self, crate_id: usize, ty_id: &Id) -> Option<(&Item, &Type)> {
+        self.crates[crate_id].index.get(ty_id).and_then(|i| {
+            Some((
+                i,
+                match &i.inner {
+                    ItemEnum::StructField(ty) => ty,
+                    _ => return None,
+                },
+            ))
+        })
+    }
+
     pub fn add_crate_json(&mut self, source: &str) -> Result<(), serde_json::Error> {
         let krate = serde_json::from_str(source)?;
         self.crates.push(krate);
@@ -70,12 +82,16 @@ impl Docs {
             })
     }
 
-    pub fn find<'a>(&'a self, query: &str) -> Option<&'a Item> {
+    /// Returns (item, crate_id)
+    pub fn find<'a>(&'a self, query: &str) -> Option<(&'a Item, usize)> {
         let query = query.split("::").collect::<Vec<_>>();
         (0..self.crates.len())
-            .flat_map(|id| self.find_in_crate(id, query.as_slice()))
+            .flat_map(|id| {
+                self.find_in_crate(id, query.as_slice())
+                    .map(move |(score, item)| (score, item, id))
+            })
             .sorted_by(|(a, ..), (b, ..)| b.cmp(a))
-            .map(|(_, item)| item)
+            .map(|(_, item, index)| (item, index))
             .next()
     }
 }
