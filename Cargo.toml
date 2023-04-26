@@ -1,5 +1,5 @@
 [workspace]
-members = ["bot", "worker", "shared"]
+members = ["bot", "worker", "shared", "doc-convert"]
 
 [profile.release]
 lto = "fat"
