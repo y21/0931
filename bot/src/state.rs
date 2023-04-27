@@ -2,6 +2,7 @@ use std::sync::Mutex;
 
 use anyhow::Context;
 use ipc2_host::workerset::WorkerSet;
+use itertools::Itertools;
 use reqwest::Client;
 use shared::ClientMessage;
 use shared::HostMessage;
@@ -12,8 +13,39 @@ use sysinfo::SystemExt;
 use tokio::fs;
 use tokio::net::UnixListener;
 
-use crate::docs::Docs;
 use crate::util;
+
+pub struct Docs {
+    index: Vec<Box<str>>,
+    docs: Vec<Box<str>>,
+}
+impl Docs {
+    async fn from_path(path: &str) -> anyhow::Result<Self> {
+        let bin = fs::read(path).await?;
+        let (index, docs) =
+            bincode::deserialize(&bin).context("Failed to deserialize docs binary blob")?;
+        Ok(Self { index, docs })
+    }
+
+    pub fn find(&self, query: &str) -> impl Iterator<Item = (isize, &str, &str)> {
+        let query_last_segment = query.rsplit("::").next();
+        self.index
+            .iter()
+            .zip(&self.docs)
+            .map(|(path, docs)| {
+                let mut score = util::fuzzy_match(query, path).unwrap_or_default();
+                let path_last_segment = path.rsplit("::").next();
+                if let Some((query, path)) = query_last_segment.zip(path_last_segment) {
+                    if query == path {
+                        score += 1000;
+                    }
+                }
+
+                (score, path.as_ref(), docs.as_ref())
+            })
+            .sorted_by(|a, b| b.0.cmp(&a.0))
+    }
+}
 
 pub struct State {
     pub workers: WorkerSet<UnixListener, ClientMessage, HostMessage>,
@@ -24,22 +56,9 @@ pub struct State {
 
 impl State {
     pub async fn new() -> anyhow::Result<Self> {
-        let read = |path: &'static str| async move {
-            fs::read_to_string(path).await.context("Reading JSON file")
-        };
-        let stellar_json = read("./stellar_canvas.json").await?;
-        let std_json = read("./std.json").await?;
-        let core_json = read("./core.json").await?;
-        let alloc_json = read("./alloc.json").await?;
-
-        let mut docs = Docs::new();
-        docs.add_crate_json(&stellar_json)?;
-        docs.add_crate_json(&std_json)?;
-        docs.add_crate_json(&core_json)?;
-        docs.add_crate_json(&alloc_json)?;
-
         let path = util::get_worker_path();
         tracing::info!(%path, "Creating state");
+        let docs = Docs::from_path("doc.bin").await?;
 
         Ok(Self {
             workers: WorkerSet::builder().worker_path(path).finish().await?,

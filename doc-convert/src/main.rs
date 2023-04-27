@@ -1,29 +1,15 @@
+#![feature(let_chains)]
+
+use anyhow::Context;
 use ctxt::CrateCtxt;
 use ctxt::DocCtxt;
 use ctxt::Output;
-use io::Write;
 use rayon::prelude::IntoParallelIterator;
-use rayon::prelude::ParallelBridge;
 use rayon::prelude::ParallelIterator;
 use rustdoc_types::Crate;
-use rustdoc_types::Function;
-use rustdoc_types::ItemEnum;
-use rustdoc_types::ItemKind;
 use std::env;
 use std::fs;
-use std::io;
-use tracing::debug;
 use tracing::info;
-
-macro_rules! prompt {
-    ($($t:tt)*) => {{
-        print!($($t)*);
-        io::stdout().flush()?;
-        let mut s = String::new();
-        io::stdin().read_line(&mut s)?;
-        s
-    }};
-}
 
 pub mod ctxt;
 
@@ -32,7 +18,6 @@ pub fn process_crate(DocCtxt { ctxt, out }: &mut DocCtxt) -> anyhow::Result<()> 
     info!(?ctxt.krate.root, "processing crate");
     ctxt.run_visitor(out);
     info!(?ctxt.krate.root, "finished crate");
-    println!("{} {}", out.index.len(), out.docs.len());
     Ok(())
 }
 
@@ -49,24 +34,26 @@ fn main() -> anyhow::Result<()> {
                 ctxt: CrateCtxt { krate },
                 out: Output::default(),
             };
-            process_crate(&mut ctx)
+            process_crate(&mut ctx)?;
+            Ok(ctx.out)
         })
-        .collect::<Vec<_>>();
-    // .collect::<Vec<_>>();
+        .collect::<anyhow::Result<Vec<_>>>()?;
 
-    // let ctx = DocCtxt::new();
+    // merge outputs
+    let output = crates
+        .into_iter()
+        .reduce(|mut prev, cur| {
+            prev.index.extend(cur.index);
+            prev.docs.extend(cur.docs);
+            prev
+        })
+        .unwrap_or_default();
 
-    // for path in paths {
-    //     process_json(&ctx, &path);
-    // }
-    // loop {
-    //     let resp = prompt!("Using paths: {:?} [y/n] ", paths);
-    //     match resp.trim() {
-    //         "y" | "yes" => break,
-    //         "n" | "no" => return Ok(()),
-    //         _ => println!("Please enter 'y' or 'n'."),
-    //     }
-    // }
+    info!("documented {} items", output.index.len());
+    let bin =
+        bincode::serialize(&(output.index, output.docs)).context("Failed to serialize output")?;
+
+    fs::write("doc.bin", bin).context("Failed to write output")?;
 
     Ok(())
 }

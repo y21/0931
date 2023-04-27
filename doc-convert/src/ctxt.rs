@@ -1,25 +1,25 @@
-use rustc_hash::FxHashMap;
 use rustdoc_types::Crate;
 use rustdoc_types::Enum;
+use rustdoc_types::FnDecl;
 use rustdoc_types::Function;
 use rustdoc_types::GenericArg;
 use rustdoc_types::GenericArgs;
+use rustdoc_types::GenericBound;
+use rustdoc_types::Generics;
+use rustdoc_types::Header;
 use rustdoc_types::Id;
 use rustdoc_types::Impl;
 use rustdoc_types::Import;
 use rustdoc_types::Item;
 use rustdoc_types::ItemEnum;
 use rustdoc_types::Module;
-use rustdoc_types::Path;
-use rustdoc_types::Primitive;
 use rustdoc_types::Struct;
 use rustdoc_types::StructKind;
-use rustdoc_types::Trait;
 use rustdoc_types::Type;
 use rustdoc_types::Union;
+use rustdoc_types::Variant;
 use rustdoc_types::VariantKind;
-use tracing::debug;
-use tracing::info;
+use std::fmt::Write;
 
 /// Crate context.
 #[derive(Debug)]
@@ -75,6 +75,10 @@ impl CrateCtxt {
         expect_item_kind!(self, id, ItemEnum::Struct(s) => s)
     }
 
+    pub fn expect_enum(&self, id: &Id) -> (&Item, &Enum, &str) {
+        expect_item_kind!(self, id, ItemEnum::Enum(e) => e)
+    }
+
     pub fn expect_function(&self, id: &Id) -> (&Item, &Function, &str) {
         expect_item_kind!(self, id, ItemEnum::Function(f) => f)
     }
@@ -83,8 +87,16 @@ impl CrateCtxt {
         expect_item_kind!(self, id, ItemEnum::StructField(t) => t)
     }
 
+    pub fn expect_unnamed_struct_field(&self, id: &Id) -> (&Item, &Type) {
+        expect_item_kind_unnamed!(self, id, ItemEnum::StructField(t) => t)
+    }
+
     pub fn expect_impl(&self, id: &Id) -> (&Item, &Impl) {
         expect_item_kind_unnamed!(self, id, ItemEnum::Impl(i) => i)
+    }
+
+    pub fn expect_variant(&self, id: &Id) -> (&Item, &Variant, &str) {
+        expect_item_kind!(self, id, ItemEnum::Variant(v) => v)
     }
 
     pub fn run_visitor(&self, out: &mut Output) {
@@ -95,7 +107,6 @@ impl CrateCtxt {
     fn visit_module(&self, id: &Id, out: &mut Output) {
         let (_, module, name) = self.expect_module(id);
         out.segment_stack.push(name.to_owned());
-        println!("{:?}", out.segment_stack);
 
         for item in &module.items {
             self.visit_item(item, out);
@@ -114,11 +125,11 @@ impl CrateCtxt {
             ItemEnum::Struct(_) => self.visit_struct(id, out),
             ItemEnum::StructField(_) => unreachable!("struct fields should be read by struct"),
             ItemEnum::Enum(_) => self.visit_enum(id, out),
-            ItemEnum::Variant(_) => unreachable!("enum variants should be read by enum"),
+            ItemEnum::Variant(_) => {}
             ItemEnum::Function(_) => self.visit_function(id, out),
             ItemEnum::Trait(_) => self.visit_trait(id, out),
-            ItemEnum::TraitAlias(_) => todo!(), // ???
-            ItemEnum::Impl(_) => todo!(),       // ???
+            ItemEnum::TraitAlias(_) => self.visit_trait_alias(id, out), // ???
+            ItemEnum::Impl(_) => todo!(),                               // ???
             ItemEnum::Typedef(_) => self.visit_typedef(id, out),
             ItemEnum::OpaqueTy(_) => {} // ???
             ItemEnum::Constant(_) => {}
@@ -133,34 +144,52 @@ impl CrateCtxt {
     }
 
     fn visit_union(&self, id: &Id, out: &mut Output) {
-        let (item, union, name) = self.expect_union(id);
+        let (_, union, _) = self.expect_union(id);
         self.visit_impls(&union.impls, out);
     }
 
     fn visit_struct(&self, id: &Id, out: &mut Output) {
-        let (_, strukt, name) = self.expect_struct(id);
-        let mut doc_string = String::new();
-        self.write_struct(&mut doc_string, strukt, name);
+        let (item, strukt, name) = self.expect_struct(id);
+        let doc_string = Self::document_item(item, |out| {
+            self.write_struct(out, strukt, name);
+        });
+
+        let path = out.to_path_string_with(name);
+        out.index.push(path.into());
+        out.docs.push(doc_string.into());
+
+        out.segment_stack.push(name.to_owned());
+        for imp in &strukt.impls {
+            self.visit_impl(imp, out);
+        }
+        out.segment_stack.pop();
+    }
+
+    fn visit_enum(&self, id: &Id, out: &mut Output) {
+        let (item, enu, name) = self.expect_enum(id);
+        let doc_string = Self::document_item(item, |out| {
+            self.write_enum(out, enu, name);
+        });
         let path = out.to_path_string_with(name);
         out.index.push(path.into());
         out.docs.push(doc_string.into());
     }
-
-    fn visit_enum(&self, id: &Id, out: &mut Output) {}
     fn visit_function(&self, id: &Id, out: &mut Output) {
-        let mut doc_string = String::new();
         let (item, function, name) = self.expect_function(id);
-        self.write_function(&mut doc_string, function, name);
+        let doc_string = Self::document_item(item, |out| {
+            self.write_function(out, function, name);
+        });
         let path = out.to_path_string_with(name);
         out.index.push(path.into());
         out.docs.push(doc_string.into());
     }
     fn visit_trait(&self, id: &Id, out: &mut Output) {}
+    fn visit_trait_alias(&self, id: &Id, out: &mut Output) {}
     fn visit_typedef(&self, id: &Id, out: &mut Output) {}
     fn visit_macro(&self, id: &Id, out: &mut Output) {}
     fn visit_proc_macro(&self, id: &Id, out: &mut Output) {}
     fn visit_import(&self, id: &Id, out: &mut Output) {
-        let (item, import) = self.expect_import(id);
+        let (_, import) = self.expect_import(id);
         if let Some(id) = &import.id {
             // Some imports are not part of the same crate or not even resolved at all
             // Let's check if it exists in the index before visiting to avoid a panic
@@ -170,10 +199,100 @@ impl CrateCtxt {
         }
     }
 
-    fn visit_fields(&self, id: &Id, out: &mut Output) {}
-    fn visit_field(&self, id: &Id, out: &mut Output) {}
-    fn visit_impl(&self, id: &Id, out: &mut Output) {}
-    fn visit_impls(&self, ids: &[Id], out: &mut Output) {}
+    fn visit_impl(&self, id: &Id, out: &mut Output) {
+        let (_, imp) = self.expect_impl(id);
+        for item in &imp.items {
+            self.visit_item(item, out);
+        }
+    }
+    fn visit_impls(&self, ids: &[Id], out: &mut Output) {
+        for imp in ids {
+            self.visit_impl(imp, out);
+        }
+    }
+
+    fn document_item<F: FnOnce(&mut String)>(item: &Item, f: F) -> String {
+        let mut out = String::from("```rs\n");
+        f(&mut out);
+        out.push_str("\n```\n");
+
+        if let Some(docs) = &item.docs {
+            if let Some(first_heading) = docs.find('#')
+                && first_heading > 0 && first_heading < 300
+            {
+                out.push_str(&docs[..first_heading]);
+            } else {
+                out.extend(docs.chars().take(300));
+            }
+
+            if docs.len() > 300 {
+                out.push_str("…\n");
+            }
+        }
+
+        out
+    }
+
+    fn write_generics(&self, out: &mut String, generics: &Generics) {
+        if !generics.params.is_empty() {
+            out.push('<');
+            for (i, param) in generics.params.iter().enumerate() {
+                if i != 0 {
+                    out.push_str(", ");
+                }
+                out.push_str(&param.name);
+            }
+            out.push('>');
+        }
+    }
+
+    fn write_impls(&self, out: &mut String, impls: &[Id], item_name: &str) {
+        const MAX_IMPL_ITEMS: usize = 10;
+        out.push_str("impl ");
+        out.push_str(item_name);
+        out.push_str(" {\n");
+
+        let items = impls
+            .iter()
+            .filter_map(|imp| {
+                let (_, imp) = self.expect_impl(imp);
+                if imp.trait_.is_some() {
+                    // for now...
+                    return None;
+                }
+                Some(imp)
+            })
+            .flat_map(|imp| imp.items.iter())
+            .take(MAX_IMPL_ITEMS);
+
+        for id in items {
+            let item = &self.krate.index[id];
+            match &item.inner {
+                ItemEnum::Function(f) => {
+                    out.push_str("  ");
+                    self.write_function(out, f, item.name.as_deref().unwrap());
+                    out.push_str(";\n");
+                }
+                ItemEnum::AssocConst { type_, default } => {
+                    out.push_str("const ");
+                    out.push_str(item.name.as_deref().unwrap());
+                    out.push_str(": ");
+                    self.write_type(out, type_);
+                    if let Some(default) = default {
+                        out.push_str(" = ");
+                        out.push_str(default);
+                    }
+                }
+                other => println!("??: {other:?}"),
+            }
+        }
+
+        if impls.len() > MAX_IMPL_ITEMS {
+            let _ = writeln!(out, "  // {} more items", impls.len() - MAX_IMPL_ITEMS);
+        }
+
+        out.push('}');
+    }
 
     fn write_struct(
         &self,
@@ -187,6 +306,8 @@ impl CrateCtxt {
     ) {
         out.push_str("struct ");
         out.push_str(name);
+        self.write_generics(out, generics);
+
         match kind {
             StructKind::Plain {
                 fields,
@@ -206,73 +327,92 @@ impl CrateCtxt {
                     out.push_str("  // private fields ommitted\n");
                 }
 
-                out.push('}');
-                out.push_str("\nimpl ");
-                out.push_str(name);
-                out.push_str(" {\n");
+                out.push_str("}\n");
+                self.write_impls(out, impls, name);
+            }
+            StructKind::Unit => out.push(';'),
+            StructKind::Tuple(fields) => {
+                out.push('(');
 
-                for id in impls {
-                    let (_, imp) = self.expect_impl(id);
-                    if imp.trait_.is_some() {
-                        // for now...
-                        continue;
+                for (index, field) in fields.iter().enumerate() {
+                    if index != 0 {
+                        out.push_str(", ");
                     }
 
-                    for id in &imp.items {
-                        let item = &self.krate.index[id];
-                        match &item.inner {
-                            ItemEnum::Function(f) => {
-                                out.push_str("  ");
-                                self.write_function(out, f, item.name.as_deref().unwrap());
-                                out.push_str(";\n");
-                            }
-                            other => println!("??: {other:?}"),
+                    match field {
+                        Some(field) => {
+                            let (_, ty, _) = self.expect_struct_field(field);
+                            self.write_type(out, ty);
                         }
+                        None => out.push('_'),
                     }
                 }
 
-                out.push('}');
+                out.push(')');
             }
-            StructKind::Unit => out.push(';'),
-            StructKind::Tuple(_) => {} // TODO!
-            other => panic!("unsupported struct kind: {other:?}"),
         }
     }
 
-    fn write_function(
+    fn write_enum(
         &self,
         out: &mut String,
-        Function {
-            decl,
+        Enum {
             generics,
-            header,
-            has_body: _,
-        }: &Function,
+            variants_stripped: _,
+            variants,
+            impls,
+        }: &Enum,
         name: &str,
     ) {
-        if header.async_ {
-            out.push_str("async ");
-        }
-        if header.const_ {
-            out.push_str("const ");
-        }
-        if header.unsafe_ {
-            out.push_str("unsafe ");
-        }
-        out.push_str("fn ");
+        out.push_str("enum ");
         out.push_str(name);
-        if !generics.params.is_empty() {
-            out.push('<');
-            for (i, param) in generics.params.iter().enumerate() {
-                if i != 0 {
-                    out.push_str(", ");
+        self.write_generics(out, generics);
+        out.push_str(" {\n");
+        for variant in variants {
+            out.push_str("  ");
+            let (_, variant, name) = self.expect_variant(variant);
+            out.push_str(name);
+            match &variant.kind {
+                VariantKind::Plain => {}
+                VariantKind::Tuple(tup) => {
+                    out.push('(');
+                    for (i, ty) in tup.iter().enumerate() {
+                        if i != 0 {
+                            out.push_str(", ");
+                        }
+                        match ty {
+                            Some(x) => {
+                                let (_, ty) = self.expect_unnamed_struct_field(x);
+                                self.write_type(out, ty);
+                            }
+                            None => out.push('_'),
+                        }
+                    }
+                    out.push(')');
                 }
-                out.push_str(&param.name);
+                VariantKind::Struct {
+                    fields,
+                    fields_stripped: _,
+                } => {
+                    out.push_str(" {\n");
+                    for field in fields {
+                        out.push_str("    ");
+                        let (_, ty, name) = self.expect_struct_field(field);
+                        out.push_str(name);
+                        out.push_str(": ");
+                        self.write_type(out, ty);
+                        out.push_str(",\n");
+                    }
+                    out.push_str("  },\n");
+                }
             }
-            out.push('>');
+            out.push_str(",\n");
         }
+        out.push_str("}\n");
+        self.write_impls(out, impls, name);
+    }
 
-        out.push('(');
+    fn write_function_decl(&self, out: &mut String, decl: &FnDecl) {
         for (i, (name, ty)) in decl.inputs.iter().enumerate() {
             if i != 0 {
                 out.push_str(", ");
@@ -296,6 +436,38 @@ impl CrateCtxt {
             out.push_str(" -> ");
             self.write_type(out, output);
         }
+    }
+
+    fn write_function_header(&self, out: &mut String, header: &Header) {
+        if header.async_ {
+            out.push_str("async ");
+        }
+        if header.const_ {
+            out.push_str("const ");
+        }
+        if header.unsafe_ {
+            out.push_str("unsafe ");
+        }
+    }
+
+    fn write_function(
+        &self,
+        out: &mut String,
+        Function {
+            decl,
+            generics,
+            header,
+            has_body: _,
+        }: &Function,
+        name: &str,
+    ) {
+        self.write_function_header(out, header);
+        out.push_str("fn ");
+        out.push_str(name);
+        self.write_generics(out, generics);
+
+        out.push('(');
+        self.write_function_decl(out, decl);
     }
 
     fn write_type(&self, out: &mut String, ty: &Type) {
@@ -375,12 +547,16 @@ impl CrateCtxt {
 
                                     match arg {
                                         GenericArg::Lifetime(lt) => {
-                                            out.push_str(&format!("'{}", lt));
+                                            out.push('\'');
+                                            out.push_str(lt);
                                         }
                                         GenericArg::Infer => out.push('_'),
                                         GenericArg::Type(ty) => self.write_type(out, ty),
                                         GenericArg::Const(c) => {
-                                            panic!("const generics not supported ({c:?})")
+                                            out.push_str("const ");
+                                            out.push_str(&c.expr);
+                                            out.push_str(": ");
+                                            self.write_type(out, &c.type_);
                                         }
                                     }
                                 }
@@ -402,6 +578,36 @@ impl CrateCtxt {
                                 out.push_str(" -> ");
                                 self.write_type(out, output);
                             }
+                        }
+                    }
+                }
+            }
+            Type::QualifiedPath {
+                name,
+                args,
+                self_type,
+                trait_,
+            } => {
+                out.push_str(name); // TODO: not really correct
+            }
+            Type::ImplTrait(bounds) => {
+                out.push_str("impl ");
+                for (index, bound) in bounds.iter().enumerate() {
+                    if index != 0 {
+                        out.push_str(" + ");
+                    }
+                    match bound {
+                        GenericBound::Outlives(lt) => {
+                            out.push('\'');
+                            out.push_str(lt);
+                        }
+                        GenericBound::TraitBound {
+                            trait_,
+                            generic_params,
+                            modifier,
+                        } => {
+                            // TODO: dedupliate Path writing logic
+                            out.push_str(&trait_.name);
                         }
                     }
                 }
@@ -437,184 +643,3 @@ pub struct DocCtxt {
     pub ctxt: CrateCtxt,
     pub out: Output,
 }
-
-// fn register_many_relations(children: &[Id], parent: &Id, out: &mut FxHashMap<Id, Id>) {
-//     for child in children {
-//         out.insert(child.clone(), parent.clone());
-//     }
-// }
-
-// fn register_many_optional_relations(
-//     children: &[Option<Id>],
-//     parent: &Id,
-//     out: &mut FxHashMap<Id, Id>,
-// ) {
-//     for child in children.iter().filter_map(|x| x.clone()) {
-//         out.insert(child, parent.clone());
-//     }
-// }
-
-// impl CrateCtxt {
-// #[tracing::instrument(skip(self))]
-// pub fn compute_child_parent_relations(&mut self) {
-//     info!("compute child-parent relations");
-//     for (id, item) in self.krate.index.iter() {
-//         match &item.inner {
-//             ItemEnum::Union(Union { fields, impls, .. }) => {
-//                 register_many_relations(fields, id, &mut self.child_to_parent);
-//                 register_many_relations(impls, id, &mut self.child_to_parent);
-//             }
-//             ItemEnum::Struct(Struct { kind, impls, .. }) => {
-//                 register_many_relations(impls, id, &mut self.child_to_parent);
-//                 match kind {
-//                     StructKind::Unit => {}
-//                     StructKind::Tuple(t) => {
-//                         register_many_optional_relations(t, id, &mut self.child_to_parent)
-//                     }
-//                     StructKind::Plain { fields, .. } => {
-//                         register_many_relations(fields, id, &mut self.child_to_parent)
-//                     }
-//                 }
-//             }
-//             ItemEnum::StructField(_) => {}
-//             ItemEnum::Enum(Enum {
-//                 variants, impls, ..
-//             }) => {
-//                 register_many_relations(impls, id, &mut self.child_to_parent);
-//                 register_many_relations(variants, id, &mut self.child_to_parent);
-//             }
-//             ItemEnum::Variant(v) => match &v.kind {
-//                 VariantKind::Plain => {}
-//                 VariantKind::Tuple(t) => {
-//                     register_many_optional_relations(t, id, &mut self.child_to_parent)
-//                 }
-//                 VariantKind::Struct { fields, .. } => {
-//                     register_many_relations(fields, id, &mut self.child_to_parent)
-//                 }
-//             },
-//             ItemEnum::Function(_) => {}
-//             ItemEnum::Trait(Trait {
-//                 items,
-//                 implementations,
-//                 ..
-//             }) => {
-//                 register_many_relations(items, id, &mut self.child_to_parent);
-//                 register_many_relations(implementations, id, &mut self.child_to_parent);
-//             }
-//             ItemEnum::TraitAlias(_) => {}
-//             ItemEnum::Impl(Impl { items, .. }) => {
-//                 register_many_relations(items, id, &mut self.child_to_parent);
-//                 register_many_relations(items, id, &mut self.method_to_impl);
-//             }
-//             ItemEnum::Typedef(_) => {}
-//             ItemEnum::OpaqueTy(_) => {}
-//             ItemEnum::Constant(_) => {}
-//             ItemEnum::Static(_) => {}
-//             ItemEnum::ForeignType => {}
-//             ItemEnum::Macro(_) => {}
-//             ItemEnum::ProcMacro(_) => todo!(),
-//             ItemEnum::Primitive(Primitive { impls, .. }) => {
-//                 register_many_relations(impls, id, &mut self.child_to_parent);
-//             }
-//             ItemEnum::AssocConst { .. } => {}
-//             ItemEnum::AssocType { .. } => {}
-//             ItemEnum::Module(Module { items, .. }) => {
-//                 println!("{:?} {:?}", item.name, item);
-//                 register_many_relations(items, id, &mut self.child_to_parent);
-//             }
-//             ItemEnum::ExternCrate { .. } => {}
-//             // ItemEnum::Import(Import {
-//             //     id: Some(id),
-//             //     glob: false,
-//             //     ..
-//             // }) => {
-//             //     self.child_to_parent.insert(id.clone(), item.id.clone());
-//             // }
-//             ItemEnum::Import(_) => {}
-//         }
-//     }
-//     info!("finished computing child-parent relations");
-//     debug!("child_to_parent: {}", self.child_to_parent.len());
-//     debug!("method_to_impl: {}", self.method_to_impl.len());
-// }
-
-// #[tracing::instrument(skip(self))]
-// pub fn populate_output(&mut self, out: &mut Output) {
-//     for (_id, item) in self.krate.index.iter() {
-//         match &item.inner {
-//             ItemEnum::Function(_) | ItemEnum::Struct(_) | ItemEnum::Enum(_) => {
-//                 let name = self.to_segmented_path(item);
-//                 // println!("{name}");
-//                 // let parent = self.child_to_parent.get(&item.id);
-//                 // match parent {
-//                 //     Some(x) => {
-//                 //         // println!("{:?}", &item.name, &self.krate.index[x]);
-//                 //         // println!("OK")
-//                 //         let parent = &self.krate.index[x];
-//                 //         let parent_inner = match &parent.inner {
-//                 //             ItemEnum::Module(m) => parent.name.as_deref().unwrap(),
-//                 //             ItemEnum::Impl(i) => {
-//                 //                 println!("impl! {:?}", i.for_);
-//                 //                 ""
-//                 //             }
-//                 //             _ => "",
-//                 //         };
-
-//                 //         // println!("{:?} (parent: {:?})", item.name, parent.name);
-//                 //     }
-//                 //     None => {}
-//                 // };
-//                 // // println!("{:?}", &item.name);
-//                 //
-//             }
-//             ItemEnum::Constant(_) => {}
-//             _ => {}
-//         }
-//     }
-// }
-
-// /// NOTE: this `&Item` must have a name (calling this with `Function`s for example is fine)
-// #[tracing::instrument(skip(self))]
-// pub fn to_segmented_path(&self, item: &Item) -> String {
-//     // Start pushing in reverse order
-//     let this = item.name.clone().unwrap();
-//     let mut segments = vec![this];
-
-//     let mut next_id = self.child_to_parent.get(&item.id);
-//     while let Some(id) = next_id {
-//         let parent = &self.krate.index[id];
-//         // println!("{:?}", parent);
-//         match &parent.inner {
-//             ItemEnum::Module(_) | ItemEnum::Struct(_) | ItemEnum::Enum(_) => {
-//                 segments.push(parent.name.clone().unwrap());
-//             }
-//             ItemEnum::Impl(Impl {
-//                 for_: Type::Primitive(prim),
-//                 ..
-//             }) => {
-//                 segments.push(prim.clone());
-//             }
-//             ItemEnum::Impl(_) => {}
-//             ItemEnum::Primitive(_) => {}
-//             ItemEnum::Trait(_) => {}
-//             ItemEnum::Import(Import { name, source, .. }) => {
-//                 segments.push(name.clone());
-//                 // let next = self.child_to_parent.get(id);
-//                 // if let Some(next) = next {
-//                 //     next_id = self.child_to_parent.get(next);
-//                 // }
-//                 // continue;
-//                 // Intentionally do nothing. The parent of this `use` is the actual referenced item.
-//             }
-//             other => todo!("{other:?}"),
-//         };
-//         next_id = self.child_to_parent.get(id);
-//     }
-
-//     segments.reverse();
-//     // if segments.len() == 1 {
-//     //     println!("{:?}", segments);
-//     // }
-//     segments.join("::")
-// }
-// }

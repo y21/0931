@@ -8,7 +8,6 @@ use poise::FrameworkOptions;
 use poise::PrefixFrameworkOptions;
 
 mod commands;
-mod docs;
 mod godbolt;
 mod playground;
 mod state;
@@ -47,6 +46,7 @@ async fn main() -> anyhow::Result<()> {
                 commands::info(),
                 commands::docs(),
                 commands::fuzzy(),
+                commands::find(),
             ],
             ..Default::default()
         })

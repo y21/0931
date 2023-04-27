@@ -100,6 +100,7 @@ name = "bot"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "bincode",
  "diff",
  "human-size",
  "ipc2_host",
@@ -108,7 +109,6 @@ dependencies = [
  "poise",
  "regex",
  "reqwest",
- "rustdoc-types",
  "serde",
  "serde_json",
  "serenity",
@@ -427,6 +427,7 @@ name = "doc-convert"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "bincode",
  "itertools",
  "rayon",
  "rustc-hash",

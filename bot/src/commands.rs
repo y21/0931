@@ -1,6 +1,5 @@
 use std::time::Duration;
 
-use anyhow::bail;
 use anyhow::Context;
 use human_size::Byte;
 use human_size::Megabyte;
@@ -9,13 +8,6 @@ use ipc2_host::workerset::TimeoutAction;
 use itertools::Itertools;
 use poise::samples::HelpConfiguration;
 use poise::CodeBlock;
-use rustdoc_types::Function;
-use rustdoc_types::GenericArg;
-use rustdoc_types::GenericArgs;
-use rustdoc_types::ItemEnum;
-use rustdoc_types::Struct;
-use rustdoc_types::StructKind;
-use rustdoc_types::Type;
 use shared::ClientMessage;
 use shared::HostMessage;
 use std::fmt::Write;
@@ -23,7 +15,6 @@ use sublime_fuzzy::best_match;
 use sysinfo::CpuExt;
 use sysinfo::SystemExt;
 
-use crate::docs::Docs;
 use crate::godbolt;
 use crate::playground;
 use crate::state::State;
@@ -205,248 +196,21 @@ pub async fn fuzzy(cx: PoiseContext<'_>, query: String, search: String) -> anyho
 }
 
 #[poise::command(prefix_command, track_edits)]
+pub async fn find(cx: PoiseContext<'_>, query: String) -> anyhow::Result<()> {
+    let items = cx.data().docs.find(&query).take(10);
+    let msg = items.fold(String::new(), |mut prev, (score, path, _)| {
+        let _ = write!(prev, "{}: {}\n", score, path);
+        prev
+    });
+    cx.say(msg).await?;
+    Ok(())
+}
+
+#[poise::command(prefix_command, track_edits)]
 pub async fn docs(cx: PoiseContext<'_>, query: String) -> anyhow::Result<()> {
     let docs = &cx.data().docs;
-    let (item, crate_id) = docs.find(&query).context("Nothing found!")?;
+    let (_, _, docs) = docs.find(&query).next().context("Nothing found!")?;
 
-    // unwrap is safe, checked by Docs::find
-    let name = item.name.as_deref().unwrap();
-
-    // TODO: consider visibility
-    let mut response = String::from("```rs\npub ");
-
-    match &item.inner {
-        ItemEnum::Function(f) => fn_to_string(&mut response, f, name)?,
-        ItemEnum::Struct(s) => struct_to_string(&mut response, s, name, crate_id, docs)?,
-        _ => bail!("unsupported item type: `{:?}`", item.inner),
-    }
-
-    response.push_str("\n```\n");
-
-    if let Some(docs) = &item.docs {
-        response.extend(docs.chars().take(500));
-
-        if docs.len() > 500 {
-            response.push('…');
-            response.push_str(" [Read more](<https://google.com>)\n");
-        }
-    }
-
-    if !item.links.is_empty() {
-        response.push_str("Go To: ");
-        for name in item.links.keys() {
-            response.push_str(&format!("[{}](<https://google.com>)  ", name));
-        }
-    }
-
-    cx.say(response).await?;
-
-    Ok(())
-}
-
-fn struct_to_string(
-    out: &mut String,
-    Struct {
-        kind,
-        generics,
-        impls,
-    }: &Struct,
-    name: &str,
-    crate_id: usize,
-    docs: &Docs,
-) -> anyhow::Result<()> {
-    out.push_str("struct ");
-    out.push_str(name);
-    match kind {
-        StructKind::Plain {
-            fields,
-            fields_stripped,
-        } => {
-            out.push_str(" {\n");
-            for field in fields.iter() {
-                out.push_str("  ");
-                let (item, ty) = docs.crate_struct_field(crate_id, field).unwrap();
-                out.push_str(item.name.as_deref().unwrap());
-                out.push_str(": ");
-                type_to_string(out, ty)?;
-                out.push_str(",\n");
-            }
-
-            if *fields_stripped {
-                out.push_str("  // private fields ommitted\n");
-            }
-
-            out.push('}');
-            out.push_str("\nimpl ");
-            out.push_str(name);
-            out.push_str(" {\n");
-
-            for id in impls {
-                let (_, imp) = docs.crate_struct_impl(crate_id, id).unwrap();
-                if imp.trait_.is_some() {
-                    continue;
-                }
-
-                for id in &imp.items {
-                    let item = docs.crate_item(crate_id, id).unwrap();
-                    match &item.inner {
-                        ItemEnum::Function(f) => {
-                            out.push_str("  ");
-                            fn_to_string(out, f, item.name.as_deref().unwrap())?;
-                            out.push_str(";\n");
-                        }
-                        other => println!("??: {other:?}"),
-                    }
-                }
-            }
-
-            out.push('}');
-        }
-        StructKind::Unit => out.push(';'),
-        _ => bail!("unit structs are not supported"),
-    }
-    Ok(())
-}
-
-fn fn_to_string(
-    out: &mut String,
-    Function {
-        decl,
-        generics,
-        header,
-        has_body: _,
-    }: &Function,
-    name: &str,
-) -> anyhow::Result<()> {
-    if header.async_ {
-        out.push_str("async ");
-    }
-    if header.const_ {
-        out.push_str("const ");
-    }
-    if header.unsafe_ {
-        out.push_str("unsafe ");
-    }
-    out.push_str("fn ");
-    out.push_str(name);
-    if !generics.params.is_empty() {
-        out.push('<');
-        for (i, param) in generics.params.iter().enumerate() {
-            if i != 0 {
-                out.push_str(", ");
-            }
-            out.push_str(&param.name);
-        }
-        out.push('>');
-    }
-
-    out.push('(');
-    for (i, (name, ty)) in decl.inputs.iter().enumerate() {
-        if i != 0 {
-            out.push_str(", ");
-        }
-
-        if name == "self" {
-            match ty {
-                Type::BorrowedRef { mutable, .. } if *mutable => out.push_str("&mut "),
-                Type::BorrowedRef { mutable, .. } if !*mutable => out.push('&'),
-                _ => {}
-            }
-            out.push_str("self");
-        } else {
-            out.push_str(name);
-            out.push_str(": ");
-            type_to_string(out, ty)?;
-        }
-    }
-    out.push(')');
-    if let Some(output) = &decl.output {
-        out.push_str(" -> ");
-        type_to_string(out, output)?;
-    }
-    Ok(())
-}
-
-fn type_to_string(out: &mut String, ty: &Type) -> anyhow::Result<()> {
-    match ty {
-        Type::BorrowedRef {
-            lifetime,
-            mutable,
-            type_,
-        } => {
-            out.push_str(&format!(
-                "&{}{}",
-                lifetime.as_deref().unwrap_or(""),
-                if *mutable { "mut " } else { "" },
-            ));
-            type_to_string(out, type_)?;
-        }
-        Type::Generic(name) => {
-            out.push_str(name);
-        }
-        Type::Primitive(prim) => {
-            out.push_str(prim);
-        }
-        Type::Slice(slice) => {
-            out.push('[');
-            type_to_string(out, slice)?;
-            out.push(']');
-        }
-        Type::RawPointer { mutable, type_ } => {
-            out.push('*');
-            match *mutable {
-                true => out.push_str("mut "),
-                false => out.push_str("const "),
-            }
-            type_to_string(out, type_)?;
-        }
-        Type::ResolvedPath(path) => {
-            out.push_str(&path.name);
-
-            if let Some(args) = &path.args {
-                match &**args {
-                    GenericArgs::AngleBracketed { args, .. } => {
-                        if !args.is_empty() {
-                            out.push('<');
-                            for (i, arg) in args.iter().enumerate() {
-                                if i != 0 {
-                                    out.push_str(", ");
-                                }
-
-                                match arg {
-                                    GenericArg::Lifetime(lt) => {
-                                        out.push_str(&format!("'{}", lt));
-                                    }
-                                    GenericArg::Infer => out.push('_'),
-                                    GenericArg::Type(ty) => type_to_string(out, ty)?,
-                                    GenericArg::Const(c) => {
-                                        bail!("const generics not supported ({c:?})")
-                                    }
-                                }
-                            }
-                            out.push('>');
-                        }
-                    }
-                    GenericArgs::Parenthesized { inputs, output } => {
-                        if !inputs.is_empty() {
-                            out.push('(');
-                            for (i, arg) in inputs.iter().enumerate() {
-                                if i != 0 {
-                                    out.push_str(", ");
-                                }
-                                type_to_string(out, arg)?;
-                            }
-                            out.push(')');
-                        }
-                        if let Some(output) = output {
-                            out.push_str(" -> ");
-                            type_to_string(out, output)?;
-                        }
-                    }
-                }
-            }
-        }
-        _ => bail!("unknown type {:?}", ty),
-    }
+    cx.say(docs).await?;
     Ok(())
 }
