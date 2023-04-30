@@ -29,6 +29,7 @@ impl PlaygroundResponse {
 
 const PLAYGROUND_RUN_URL: &str = "https://play.rust-lang.org/execute";
 const MIRI_RUN_URL: &str = "https://play.rust-lang.org/miri";
+const CLIPPY_RUN_URL: &str = "https://play.rust-lang.org/clippy";
 
 fn wrap_in_println(input: String) -> String {
     if input.contains("fn main") {
@@ -107,6 +108,21 @@ pub async fn bench_code(
 pub async fn run_miri(client: &Client, code: String) -> anyhow::Result<PlaygroundResponse> {
     client
         .post(MIRI_RUN_URL)
+        .json(&json!({
+            "code": wrap_in_println(code),
+            "edition": "2021",
+        }))
+        .send()
+        .await?
+        .error_for_status()?
+        .json()
+        .await
+        .map_err(Into::into)
+}
+
+pub async fn run_clippy(client: &Client, code: String) -> anyhow::Result<PlaygroundResponse> {
+    client
+        .post(CLIPPY_RUN_URL)
         .json(&json!({
             "code": wrap_in_println(code),
             "edition": "2021",
