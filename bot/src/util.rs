@@ -7,6 +7,7 @@ use poise::PopArgument;
 use regex::Regex;
 use std::borrow::Cow;
 use std::error::Error;
+use sublime_fuzzy::best_match;
 
 pub fn codeblock(input: &str) -> String {
     format!("```rs\n{input}\n```")
@@ -109,4 +110,14 @@ impl<'a> PopArgument<'a> for CodeBlockOrRest {
 
         Ok(("", attachment_index, CodeBlockOrRest(args.into())))
     }
+}
+
+/// Tests for equality and returns a score.
+pub fn fuzzy_match(left: &str, right: &str) -> Option<isize> {
+    if left == right {
+        // Prefer exact matches. Use some high value that will "probably" be higher than almost-exact matches.
+        return Some(10000);
+    }
+
+    Some(best_match(left, right)?.score())
 }
