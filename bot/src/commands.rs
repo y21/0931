@@ -71,10 +71,7 @@ pub async fn miri(cx: PoiseContext<'_>, block: CodeBlockOrRest) -> anyhow::Resul
 #[poise::command(prefix_command, track_edits, broadcast_typing)]
 pub async fn clippy(cx: PoiseContext<'_>, block: CodeBlockOrRest) -> anyhow::Result<()> {
     let response = playground::run_clippy(&cx.data().reqwest, block.0).await?;
-    cx.say(util::codeblock(util::strip_header_stderr(
-        &response.output(),
-    )))
-    .await?;
+    cx.say(util::codeblock(&response.output())).await?;
 
     Ok(())
 }
