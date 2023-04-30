@@ -91,7 +91,10 @@ pub fn get_temp() -> anyhow::Result<Option<f64>> {
     }
 }
 
-pub struct CodeBlockOrRest(pub String);
+pub struct CodeBlockOrRest {
+    pub code: String,
+    pub language: Option<String>,
+}
 
 #[async_trait]
 impl<'a> PopArgument<'a> for CodeBlockOrRest {
@@ -102,13 +105,20 @@ impl<'a> PopArgument<'a> for CodeBlockOrRest {
         msg: &Message,
     ) -> Result<(&'a str, usize, Self), (Box<dyn Error + Send + Sync + 'static>, Option<String>)>
     {
-        if let Ok((rest, index, CodeBlock { code, .. })) =
+        if let Ok((rest, index, CodeBlock { code, language })) =
             CodeBlock::pop_from(args, attachment_index, cx, msg).await
         {
-            return Ok((rest, index, CodeBlockOrRest(code)));
+            return Ok((rest, index, CodeBlockOrRest { code, language }));
         }
 
-        Ok(("", attachment_index, CodeBlockOrRest(args.into())))
+        Ok((
+            "",
+            attachment_index,
+            CodeBlockOrRest {
+                code: args.into(),
+                language: None,
+            },
+        ))
     }
 }
 

@@ -1,5 +1,6 @@
 use std::time::Duration;
 
+use anyhow::bail;
 use anyhow::Context;
 use human_size::Byte;
 use human_size::Megabyte;
@@ -16,6 +17,9 @@ use sysinfo::CpuExt;
 use sysinfo::SystemExt;
 
 use crate::godbolt;
+use crate::godbolt::languages::Rust;
+use crate::godbolt::languages::C;
+use crate::godbolt::GodboltResponse;
 use crate::playground;
 use crate::state::State;
 use crate::util;
@@ -28,7 +32,7 @@ use crate::PoiseContext;
 /// wrap it in a main function and a print statement.
 #[poise::command(prefix_command, track_edits, broadcast_typing)]
 pub async fn rust(cx: PoiseContext<'_>, block: CodeBlockOrRest) -> anyhow::Result<()> {
-    let response = playground::run_code(&cx.data().reqwest, block.0).await?;
+    let response = playground::run_code(&cx.data().reqwest, block.code).await?;
 
     cx.say(util::codeblock(util::strip_header_stderr(
         &response.output(),
@@ -58,7 +62,7 @@ pub async fn bench(
 /// Runs a codeblock under miri, an interpreter that checks for memory errors
 #[poise::command(prefix_command, track_edits, broadcast_typing)]
 pub async fn miri(cx: PoiseContext<'_>, block: CodeBlockOrRest) -> anyhow::Result<()> {
-    let response = playground::run_miri(&cx.data().reqwest, block.0).await?;
+    let response = playground::run_miri(&cx.data().reqwest, block.code).await?;
     cx.say(util::codeblock(util::strip_header_stderr(
         &response.output(),
     )))
@@ -70,7 +74,7 @@ pub async fn miri(cx: PoiseContext<'_>, block: CodeBlockOrRest) -> anyhow::Resul
 /// Runs a codeblock under clippy, a Rust linter
 #[poise::command(prefix_command, track_edits, broadcast_typing)]
 pub async fn clippy(cx: PoiseContext<'_>, block: CodeBlockOrRest) -> anyhow::Result<()> {
-    let response = playground::run_clippy(&cx.data().reqwest, block.0).await?;
+    let response = playground::run_clippy(&cx.data().reqwest, block.code).await?;
     cx.say(util::codeblock(&response.output())).await?;
 
     Ok(())
@@ -89,13 +93,25 @@ pub async fn help(cx: PoiseContext<'_>, command: Option<String>) -> anyhow::Resu
     Ok(())
 }
 
+async fn compile_any_lang(
+    reqwest: &reqwest::Client,
+    CodeBlock { code, language }: CodeBlock,
+) -> anyhow::Result<GodboltResponse> {
+    Ok(match language.as_deref() {
+        Some("rs" | "rust") | None => godbolt::get_asm::<Rust>(reqwest, code).await?,
+        Some("c") => godbolt::get_asm::<C>(reqwest, code).await?,
+        Some(other) => bail!("unknown codeblock language: {other}"),
+    })
+}
+
 /// Compile a codeblock and get the assembly
 #[poise::command(prefix_command, track_edits)]
 pub async fn asm(cx: PoiseContext<'_>, blocks: Vec<CodeBlock>) -> anyhow::Result<()> {
     let mut output = String::new();
+    let reqwest = &cx.data().reqwest;
 
     for block in blocks {
-        let out = godbolt::get_asm(&cx.data().reqwest, block.code).await?;
+        let out = compile_any_lang(reqwest, block).await?;
         output.push_str(&util::codeblock(&out.0));
     }
 
@@ -111,8 +127,8 @@ pub async fn asmdiff(
     block2: CodeBlock,
 ) -> anyhow::Result<()> {
     let State { reqwest, .. } = &**cx.data();
-    let response1 = godbolt::get_asm(reqwest, block1.code).await?;
-    let response2 = godbolt::get_asm(reqwest, block2.code).await?;
+    let response1 = compile_any_lang(reqwest, block1).await?;
+    let response2 = compile_any_lang(reqwest, block2).await?;
 
     cx.say(util::codeblock_with_lang(
         "diff",
@@ -127,7 +143,7 @@ const MAX_TIME: Duration = Duration::from_secs(5);
 /// Executes JavaScript code
 #[poise::command(prefix_command, track_edits)]
 pub async fn js(cx: PoiseContext<'_>, block: CodeBlockOrRest) -> anyhow::Result<()> {
-    let CodeBlockOrRest(code) = block;
+    let CodeBlockOrRest { code, .. } = block;
     tracing::info!(%code, "Send JS code to worker");
 
     let ClientMessage::EvalResponse(message) = cx

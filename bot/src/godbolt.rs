@@ -1,11 +1,10 @@
 use reqwest::Client;
 use serde::Deserialize;
-use serenity::json::json;
 use std::fmt::Write;
 
 use crate::util;
 
-const GODBOLT_COMPILE_URL: &str = "https://godbolt.org/api/compiler/nightly/compile";
+use self::languages::CompileTarget;
 
 #[derive(Deserialize)]
 pub struct GodboltAsmBlock {
@@ -21,7 +20,7 @@ impl GodboltResponse {
         let Self(other) = other;
         let mut output = String::new();
 
-        for diff in diff::lines(&this, &other) {
+        for diff in diff::lines(this.trim_end(), other.trim_end()) {
             let _ = match diff {
                 diff::Result::Left(l) => writeln!(output, "- {l}"),
                 diff::Result::Both(l, _) => writeln!(output, "  {l}"),
@@ -32,19 +31,58 @@ impl GodboltResponse {
         output
     }
 }
+pub mod languages {
+    use serde_json::json;
 
-pub async fn get_asm(client: &Client, input: String) -> anyhow::Result<GodboltResponse> {
+    pub trait CompileTarget {
+        fn url() -> &'static str;
+        fn prepare_json_body(source: &str) -> serde_json::Value;
+    }
+
+    pub struct Rust;
+    impl CompileTarget for Rust {
+        fn url() -> &'static str {
+            "https://godbolt.org/api/compiler/nightly/compile"
+        }
+        fn prepare_json_body(source: &str) -> serde_json::Value {
+            json!({
+                "source": source,
+                "compiler": "nightly",
+                "options": {
+                    "userArguments": "-Copt-level=3 -Clto=on -Ctarget-feature=+sse3,+avx -Ctarget-cpu=native"
+                },
+                "lang": "rust",
+                "allowStoreCodeDebug": true
+            })
+        }
+    }
+
+    pub struct C;
+    impl CompileTarget for C {
+        fn url() -> &'static str {
+            "https://godbolt.org/api/compiler/cclang1600/compile"
+        }
+        fn prepare_json_body(source: &str) -> serde_json::Value {
+            json!({
+                "source": source,
+                "compiler": "cclang1600",
+                "options": {
+                    "userArguments": "-O3 -march=native"
+                },
+                "lang": "c",
+                "allowStoreCodeDebug": true
+            })
+        }
+    }
+}
+
+pub async fn get_asm<T: CompileTarget>(
+    client: &Client,
+    input: String,
+) -> anyhow::Result<GodboltResponse> {
     let response = client
-        .post(GODBOLT_COMPILE_URL)
-        .json(&json!({
-            "source": input,
-            "compiler": "nightly",
-            "options": {
-                "userArguments": "-Copt-level=3 -Clto=on -Ctarget-feature=+sse3,+avx -Ctarget-cpu=native"
-            },
-            "lang": "rust",
-            "allowStoreCodeDebug": true
-        }))
+        .post(T::url())
+        .json(&T::prepare_json_body(&input))
         .send()
         .await?
         .error_for_status()?
