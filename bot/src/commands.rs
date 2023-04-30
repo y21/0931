@@ -1,14 +1,17 @@
 use std::time::Duration;
 
+use anyhow::Context;
 use human_size::Byte;
 use human_size::Megabyte;
 use human_size::SpecificSize;
 use ipc2_host::workerset::TimeoutAction;
+use itertools::Itertools;
 use poise::samples::HelpConfiguration;
 use poise::CodeBlock;
 use shared::ClientMessage;
 use shared::HostMessage;
 use std::fmt::Write;
+use sublime_fuzzy::best_match;
 use sysinfo::CpuExt;
 use sysinfo::SystemExt;
 
@@ -173,5 +176,41 @@ pub async fn info(cx: PoiseContext<'_>) -> anyhow::Result<()> {
 
     cx.say(output).await?;
 
+    Ok(())
+}
+
+#[poise::command(prefix_command, track_edits)]
+pub async fn fuzzy(cx: PoiseContext<'_>, query: String, search: String) -> anyhow::Result<()> {
+    let result = best_match(&query, &search).context("No match!")?;
+
+    let message = format!(
+        "Score: {} \n\
+        Matched indices: {}
+    ",
+        result.score(),
+        result.matched_indices().join(", ")
+    );
+
+    cx.say(message).await?;
+    Ok(())
+}
+
+#[poise::command(prefix_command, track_edits)]
+pub async fn find(cx: PoiseContext<'_>, query: String) -> anyhow::Result<()> {
+    let items = cx.data().docs.find(&query).take(10);
+    let msg = items.fold(String::new(), |mut prev, (score, path, _)| {
+        let _ = write!(prev, "{}: {}\n", score, path);
+        prev
+    });
+    cx.say(msg).await?;
+    Ok(())
+}
+
+#[poise::command(prefix_command, track_edits)]
+pub async fn docs(cx: PoiseContext<'_>, query: String) -> anyhow::Result<()> {
+    let docs = &cx.data().docs;
+    let (_, _, docs) = docs.find(&query).next().context("Nothing found!")?;
+
+    cx.say(docs).await?;
     Ok(())
 }

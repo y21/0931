@@ -44,6 +44,9 @@ async fn main() -> anyhow::Result<()> {
                 commands::miri(),
                 commands::js(),
                 commands::info(),
+                commands::docs(),
+                commands::fuzzy(),
+                commands::find(),
             ],
             ..Default::default()
         })
