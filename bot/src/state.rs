@@ -21,7 +21,9 @@ pub struct Docs {
 }
 impl Docs {
     async fn from_path(path: &str) -> anyhow::Result<Self> {
-        let bin = fs::read(path).await?;
+        let bin = fs::read(path)
+            .await
+            .context("Could not open docs binary blob. Make sure to run the doc-converter on your doc .json files.")?;
         let (index, docs) =
             bincode::deserialize(&bin).context("Failed to deserialize docs binary blob")?;
         Ok(Self { index, docs })
