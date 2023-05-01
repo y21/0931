@@ -1,3 +1,4 @@
+use itertools::Itertools;
 use rustdoc_types::Crate;
 use rustdoc_types::Enum;
 use rustdoc_types::FnDecl;
@@ -13,23 +14,20 @@ use rustdoc_types::Import;
 use rustdoc_types::Item;
 use rustdoc_types::ItemEnum;
 use rustdoc_types::Module;
+use rustdoc_types::Path;
 use rustdoc_types::Struct;
 use rustdoc_types::StructKind;
 use rustdoc_types::Type;
 use rustdoc_types::Union;
 use rustdoc_types::Variant;
 use rustdoc_types::VariantKind;
+use std::cmp::Ordering;
 use std::fmt::Write;
 
 /// Crate context.
 #[derive(Debug)]
 pub struct CrateCtxt {
     pub krate: Crate,
-    // /// Maps method id to parent item id (struct/enum/module)
-    // /// and item (struct/enum/module) id to parent module id (module)
-    // pub child_to_parent: FxHashMap<Id, Id>,
-    // /// Maps method to impl block
-    // pub method_to_impl: FxHashMap<Id, Id>,
 }
 
 macro_rules! expect_item_kind {
@@ -247,25 +245,29 @@ impl CrateCtxt {
     }
 
     fn write_impls(&self, out: &mut String, impls: &[Id], item_name: &str) {
-        const MAX_IMPL_ITEMS: usize = 10;
+        const MAX_INHERENT_IMPL_ITEMS: usize = 10;
+        const MAX_TRAIT_IMPLS: usize = 10;
         out.push_str("impl ");
         out.push_str(item_name);
         out.push_str(" {\n");
 
-        let items = impls
-            .iter()
-            .filter_map(|imp| {
-                let (_, imp) = self.expect_impl(imp);
+        let items = impls.iter().map(|imp| self.expect_impl(imp));
+
+        let total_items = items.clone().map(|(_, imp)| imp.items.len()).sum::<usize>();
+
+        let inherent_impls = items
+            .clone()
+            .filter_map(|(_, imp)| {
                 if imp.trait_.is_some() {
-                    // for now...
-                    return None;
+                    None
+                } else {
+                    Some(imp)
                 }
-                Some(imp)
             })
             .flat_map(|imp| imp.items.iter())
-            .take(MAX_IMPL_ITEMS);
+            .take(MAX_INHERENT_IMPL_ITEMS);
 
-        for id in items {
+        for id in inherent_impls {
             let item = &self.krate.index[id];
             match &item.inner {
                 ItemEnum::Function(f) => {
@@ -287,11 +289,96 @@ impl CrateCtxt {
             }
         }
 
-        if impls.len() > MAX_IMPL_ITEMS {
-            let _ = writeln!(out, "  // {} more items", impls.len() - MAX_IMPL_ITEMS);
+        if total_items > MAX_INHERENT_IMPL_ITEMS {
+            let _ = writeln!(
+                out,
+                "  // {} more items",
+                total_items - MAX_INHERENT_IMPL_ITEMS
+            );
         }
 
         out.push('}');
+
+        fn is_auto_trait(p: &Path) -> bool {
+            ["RefUnwindSafe", "Send", "Sync", "Unpin", "UnwindSafe"].contains(&p.name.as_str())
+        }
+
+        fn is_blanket_trait_impl(p: &Path) -> bool {
+            [
+                "Any",
+                "Borrow",
+                "BorrowMut",
+                "From",
+                "Into",
+                "ToOwned",
+                "TryFrom",
+                "TryInto",
+            ]
+            .contains(&p.name.as_str())
+        }
+
+        let trait_impls = items
+            .clone()
+            .filter_map(|(_, imp)| imp.trait_.as_ref().map(|t| (imp, t)))
+            .filter(|(_, tr)| !is_blanket_trait_impl(tr))
+            .sorted_by(|_, (_, tr2)| {
+                if is_auto_trait(tr2) {
+                    // Prefer inherent impls over auto trait impls
+                    Ordering::Less
+                } else {
+                    Ordering::Equal
+                }
+            })
+            .take(MAX_TRAIT_IMPLS);
+
+        for (_, trait_) in trait_impls {
+            out.push_str("\nimpl ");
+            out.push_str(&trait_.name);
+            out.push_str(" for ");
+            out.push_str(item_name);
+            out.push_str(" {} ");
+
+            let hint = match trait_.name.as_str() {
+                "Try" => Some("// the `?` operator"),
+                "PartialEq" => Some("// the `==` operator"),
+                "PartialOrd" => Some("// the `<`, `<=`, `>` and `>=` operators"),
+                "Add" => Some("// the `+` operator"),
+                "AddAssign" => Some("// the `+=` operator"),
+                "BitAnd" => Some("// the `&` operator"),
+                "BitAndAssign" => Some("// the `&=` operator"),
+                "BitOr" => Some("// the `|` operator"),
+                "BitOrAssign" => Some("// the `|=` operator"),
+                "BitXor" => Some("// the `^` operator"),
+                "BitXorAssign" => Some("// the `^=` operator"),
+                "Deref" => Some("// code that is run on dereference (`*`) "),
+                "DerefMut" => Some("// code that is run on mut dereference (`*`) "),
+                "Div" => Some("// the `/` operator"),
+                "DivAssign" => Some("// the `/=` operator"),
+                "Drop" => Some("// code that is run when type is dropped"),
+                "Fn" => Some("// the call operator that takes immutable env"),
+                "FnMut" => Some("// the call operator that takes mutable env"),
+                "FnOnce" => Some("// the call operator that takes by-value env"),
+                "Index" => Some("// the indexing operator `[]` in immutable contexts"),
+                "IndexMut" => Some("// the indexing operator `[]` in mutable contexts"),
+                "Mul" => Some("// the `*` operator for multiplication"),
+                "MulAssign" => Some("// the `*=` operator for multiplication"),
+                "Neg" => Some("// the unary negation operator `-`"),
+                "Not" => Some("// the unary logical negation operator `!`"),
+                "Rem" => Some("// the remainder operator `%`"),
+                "RemAssign" => Some("// the remainder assignment operator `%=`"),
+                "Shl" => Some("// the left shift operator `<<`"),
+                "ShlAssign" => Some("// the left shift assignment operator `<<=`"),
+                "Shr" => Some("// the right shift operator `>>`"),
+                "ShrAssign" => Some("// the right shift assignment operator `>>=`"),
+                "Sub" => Some("// the `-` operator for subtraction"),
+                "SubAssign" => Some("// the `-=` operator for subtraction"),
+                _ => None,
+            };
+
+            if let Some(hint) = hint {
+                out.push_str(hint);
+            }
+        }
     }
 
     fn write_struct(
@@ -324,7 +411,7 @@ impl CrateCtxt {
                 }
 
                 if *fields_stripped {
-                    out.push_str("  // private fields ommitted\n");
+                    out.push_str("  // private fields omitted\n");
                 }
 
                 out.push_str("}\n");
