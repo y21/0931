@@ -45,10 +45,9 @@ pub fn strip_header_stderr(input: &str) -> &str {
             }
             true
         })
-    } else if input.starts_with("error") || input.starts_with("warning:") {
-        input
     } else {
-        unreachable!("{input}")
+        // Error, warning or ICE
+        input
     }
 }
 
