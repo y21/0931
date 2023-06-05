@@ -9,10 +9,17 @@ use std::borrow::Cow;
 use std::error::Error;
 use sublime_fuzzy::best_match;
 
+pub fn shrink_to_fit(input: &str) -> &str {
+    let len = 1980.min(input.len());
+    &input[..len]
+}
+
 pub fn codeblock(input: &str) -> String {
+    let input = shrink_to_fit(input);
     format!("```rs\n{input}\n```")
 }
 pub fn codeblock_with_lang(lang: &str, input: &str) -> String {
+    let input = shrink_to_fit(input);
     format!("```{lang}\n{input}\n```")
 }
 
