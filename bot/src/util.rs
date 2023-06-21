@@ -1,3 +1,4 @@
+use anyhow::anyhow;
 use once_cell::sync::Lazy;
 use poise::async_trait;
 use poise::serenity_prelude::Context;
@@ -97,9 +98,19 @@ pub fn get_temp() -> anyhow::Result<Option<f64>> {
     }
 }
 
+#[derive(Debug)]
 pub struct CodeBlockOrRest {
     pub code: String,
     pub language: Option<String>,
+}
+
+impl From<CodeBlockOrRest> for CodeBlock {
+    fn from(code: CodeBlockOrRest) -> Self {
+        Self {
+            code: code.code,
+            language: code.language,
+        }
+    }
 }
 
 #[async_trait]
@@ -125,6 +136,44 @@ impl<'a> PopArgument<'a> for CodeBlockOrRest {
                 language: None,
             },
         ))
+    }
+}
+
+#[derive(Debug)]
+pub struct MaybeQuoted {
+    pub value: String,
+}
+
+#[async_trait]
+impl<'a> PopArgument<'a> for MaybeQuoted {
+    async fn pop_from(
+        args: &'a str,
+        attachment_index: usize,
+        _: &Context,
+        _: &Message,
+    ) -> Result<(&'a str, usize, Self), (Box<dyn Error + Send + Sync + 'static>, Option<String>)>
+    {
+        if let Some(args) = args.strip_prefix('"') {
+            let end = args
+                .find('"')
+                .ok_or_else(|| (anyhow!("Missing end quote").into(), Some(args.to_string())))?;
+            Ok((
+                &args[end + 1..],
+                attachment_index,
+                MaybeQuoted {
+                    value: args[..end].to_string(),
+                },
+            ))
+        } else {
+            let arg = args.split_ascii_whitespace().next().unwrap_or(args);
+            Ok((
+                &args[arg.len() + 1..],
+                attachment_index,
+                MaybeQuoted {
+                    value: args[..arg.len()].to_string(),
+                },
+            ))
+        }
     }
 }
 

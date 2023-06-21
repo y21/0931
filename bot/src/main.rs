@@ -48,6 +48,8 @@ async fn main() -> anyhow::Result<()> {
                 commands::fuzzy(),
                 commands::find(),
                 commands::clippy(),
+                commands::expand(),
+                commands::godbolt(),
             ],
             ..Default::default()
         })

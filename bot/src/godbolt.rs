@@ -11,7 +11,7 @@ pub struct GodboltAsmBlock {
     pub text: String,
 }
 
-#[derive(Deserialize)]
+#[derive(Deserialize, Debug)]
 pub struct GodboltResponse(pub String);
 
 impl GodboltResponse {
@@ -36,7 +36,7 @@ pub mod languages {
 
     pub trait CompileTarget {
         fn url() -> &'static str;
-        fn prepare_json_body(source: &str) -> serde_json::Value;
+        fn prepare_json_body(source: &str, flags: Option<&str>) -> serde_json::Value;
     }
 
     pub struct Rust;
@@ -44,12 +44,12 @@ pub mod languages {
         fn url() -> &'static str {
             "https://godbolt.org/api/compiler/nightly/compile"
         }
-        fn prepare_json_body(source: &str) -> serde_json::Value {
+        fn prepare_json_body(source: &str, flags: Option<&str>) -> serde_json::Value {
             json!({
                 "source": source,
                 "compiler": "nightly",
                 "options": {
-                    "userArguments": "-Copt-level=3 -Clto=on -Ctarget-feature=+sse3,+avx -Ctarget-cpu=native"
+                    "userArguments": flags.unwrap_or("-Copt-level=3 -Clto=on -Ctarget-feature=+sse3,+avx -Ctarget-cpu=native")
                 },
                 "lang": "rust",
                 "allowStoreCodeDebug": true
@@ -62,12 +62,12 @@ pub mod languages {
         fn url() -> &'static str {
             "https://godbolt.org/api/compiler/cclang1600/compile"
         }
-        fn prepare_json_body(source: &str) -> serde_json::Value {
+        fn prepare_json_body(source: &str, flags: Option<&str>) -> serde_json::Value {
             json!({
                 "source": source,
                 "compiler": "cclang1600",
                 "options": {
-                    "userArguments": "-O3 -march=native"
+                    "userArguments": flags.unwrap_or("-O3 -march=native")
                 },
                 "lang": "c",
                 "allowStoreCodeDebug": true
@@ -79,10 +79,11 @@ pub mod languages {
 pub async fn get_asm<T: CompileTarget>(
     client: &Client,
     input: String,
+    flags: Option<String>,
 ) -> anyhow::Result<GodboltResponse> {
     let response = client
         .post(T::url())
-        .json(&T::prepare_json_body(&input))
+        .json(&T::prepare_json_body(&input, flags.as_deref()))
         .send()
         .await?
         .error_for_status()?

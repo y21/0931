@@ -24,6 +24,7 @@ use crate::playground;
 use crate::state::State;
 use crate::util;
 use crate::util::CodeBlockOrRest;
+use crate::util::MaybeQuoted;
 use crate::PoiseContext;
 
 /// Executes a Rust codeblock
@@ -80,6 +81,29 @@ pub async fn clippy(cx: PoiseContext<'_>, block: CodeBlockOrRest) -> anyhow::Res
     Ok(())
 }
 
+/// Runs a codeblock under clippy, a Rust linter
+#[poise::command(prefix_command, track_edits, broadcast_typing)]
+pub async fn expand(cx: PoiseContext<'_>, block: CodeBlockOrRest) -> anyhow::Result<()> {
+    let response = playground::run_macro_expansion(&cx.data().reqwest, block.code).await?;
+    cx.say(util::codeblock(&response.output())).await?;
+
+    Ok(())
+}
+
+/// Runs a codeblock under clippy, a Rust linter
+#[poise::command(prefix_command, track_edits, broadcast_typing)]
+pub async fn godbolt(
+    cx: PoiseContext<'_>,
+    flags: Option<MaybeQuoted>,
+    block: CodeBlockOrRest,
+) -> anyhow::Result<()> {
+    let response =
+        compile_any_lang(&cx.data().reqwest, block.into(), flags.map(|q| q.value)).await?;
+    cx.say(util::codeblock(&response.0)).await?;
+
+    Ok(())
+}
+
 /// Help me
 #[poise::command(prefix_command, track_edits)]
 pub async fn help(cx: PoiseContext<'_>, command: Option<String>) -> anyhow::Result<()> {
@@ -96,10 +120,11 @@ pub async fn help(cx: PoiseContext<'_>, command: Option<String>) -> anyhow::Resu
 async fn compile_any_lang(
     reqwest: &reqwest::Client,
     CodeBlock { code, language }: CodeBlock,
+    flags: Option<String>,
 ) -> anyhow::Result<GodboltResponse> {
     Ok(match language.as_deref() {
-        Some("rs" | "rust") | None => godbolt::get_asm::<Rust>(reqwest, code).await?,
-        Some("c") => godbolt::get_asm::<C>(reqwest, code).await?,
+        Some("rs" | "rust") | None => godbolt::get_asm::<Rust>(reqwest, code, flags).await?,
+        Some("c") => godbolt::get_asm::<C>(reqwest, code, flags).await?,
         Some(other) => bail!("unknown codeblock language: {other}"),
     })
 }
@@ -111,7 +136,7 @@ pub async fn asm(cx: PoiseContext<'_>, blocks: Vec<CodeBlock>) -> anyhow::Result
     let reqwest = &cx.data().reqwest;
 
     for block in blocks {
-        let out = compile_any_lang(reqwest, block).await?;
+        let out = compile_any_lang(reqwest, block, None).await?;
         output.push_str(&util::codeblock(&out.0));
     }
 
@@ -127,8 +152,8 @@ pub async fn asmdiff(
     block2: CodeBlock,
 ) -> anyhow::Result<()> {
     let State { reqwest, .. } = &**cx.data();
-    let response1 = compile_any_lang(reqwest, block1).await?;
-    let response2 = compile_any_lang(reqwest, block2).await?;
+    let response1 = compile_any_lang(reqwest, block1, None).await?;
+    let response2 = compile_any_lang(reqwest, block2, None).await?;
 
     cx.say(util::codeblock_with_lang(
         "diff",
