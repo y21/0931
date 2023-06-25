@@ -34,6 +34,7 @@ async fn main() -> anyhow::Result<()> {
                 ignore_bots: false,
                 prefix: Some(prefix),
                 edit_tracker: Some(EditTracker::for_timespan(Duration::from_secs(3600))),
+                execute_self_messages: false,
                 ..Default::default()
             },
             commands: vec![

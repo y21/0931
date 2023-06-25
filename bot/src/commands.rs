@@ -27,6 +27,12 @@ use crate::util::CodeBlockOrRest;
 use crate::util::MaybeQuoted;
 use crate::PoiseContext;
 
+async fn reply(cx: &PoiseContext<'_>, content: String) -> Result<(), serenity::Error> {
+    cx.send(|reply| reply.allowed_mentions(|m| m.empty_parse()).content(content))
+        .await?;
+    Ok(())
+}
+
 /// Executes a Rust codeblock
 ///
 /// The code can simply be an expression and the bot will automatically
@@ -35,9 +41,10 @@ use crate::PoiseContext;
 pub async fn rust(cx: PoiseContext<'_>, block: CodeBlockOrRest) -> anyhow::Result<()> {
     let response = playground::run_code(&cx.data().reqwest, block.code).await?;
 
-    cx.say(util::codeblock(util::strip_header_stderr(
-        &response.output(),
-    )))
+    reply(
+        &cx,
+        util::codeblock(util::strip_header_stderr(&response.output())),
+    )
     .await?;
 
     Ok(())
@@ -52,9 +59,10 @@ pub async fn bench(
 ) -> anyhow::Result<()> {
     let response = playground::bench_code(&cx.data().reqwest, block1.code, block2.code).await?;
 
-    cx.say(util::codeblock(util::strip_header_stderr(
-        &response.output(),
-    )))
+    reply(
+        &cx,
+        util::codeblock(util::strip_header_stderr(&response.output())),
+    )
     .await?;
 
     Ok(())
@@ -64,9 +72,10 @@ pub async fn bench(
 #[poise::command(prefix_command, track_edits, broadcast_typing)]
 pub async fn miri(cx: PoiseContext<'_>, block: CodeBlockOrRest) -> anyhow::Result<()> {
     let response = playground::run_miri(&cx.data().reqwest, block.code).await?;
-    cx.say(util::codeblock(util::strip_header_stderr(
-        &response.output(),
-    )))
+    reply(
+        &cx,
+        util::codeblock(util::strip_header_stderr(&response.output())),
+    )
     .await?;
 
     Ok(())
@@ -76,7 +85,7 @@ pub async fn miri(cx: PoiseContext<'_>, block: CodeBlockOrRest) -> anyhow::Resul
 #[poise::command(prefix_command, track_edits, broadcast_typing)]
 pub async fn clippy(cx: PoiseContext<'_>, block: CodeBlockOrRest) -> anyhow::Result<()> {
     let response = playground::run_clippy(&cx.data().reqwest, block.code).await?;
-    cx.say(util::codeblock(&response.output())).await?;
+    reply(&cx, util::codeblock(&response.output())).await?;
 
     Ok(())
 }
@@ -85,7 +94,7 @@ pub async fn clippy(cx: PoiseContext<'_>, block: CodeBlockOrRest) -> anyhow::Res
 #[poise::command(prefix_command, track_edits, broadcast_typing)]
 pub async fn expand(cx: PoiseContext<'_>, block: CodeBlockOrRest) -> anyhow::Result<()> {
     let response = playground::run_macro_expansion(&cx.data().reqwest, block.code).await?;
-    cx.say(util::codeblock(&response.output())).await?;
+    reply(&cx, util::codeblock(&response.output())).await?;
 
     Ok(())
 }
@@ -99,7 +108,7 @@ pub async fn godbolt(
 ) -> anyhow::Result<()> {
     let response =
         compile_any_lang(&cx.data().reqwest, block.into(), flags.map(|q| q.value)).await?;
-    cx.say(util::codeblock(&response.0)).await?;
+    reply(&cx, util::codeblock(&response.0)).await?;
 
     Ok(())
 }
@@ -140,7 +149,7 @@ pub async fn asm(cx: PoiseContext<'_>, blocks: Vec<CodeBlock>) -> anyhow::Result
         output.push_str(&util::codeblock(&out.0));
     }
 
-    cx.say(&output).await?;
+    reply(&cx, output).await?;
     Ok(())
 }
 
@@ -155,10 +164,10 @@ pub async fn asmdiff(
     let response1 = compile_any_lang(reqwest, block1, None).await?;
     let response2 = compile_any_lang(reqwest, block2, None).await?;
 
-    cx.say(util::codeblock_with_lang(
-        "diff",
-        &response1.diff(response2),
-    ))
+    reply(
+        &cx,
+        util::codeblock_with_lang("diff", &response1.diff(response2)),
+    )
     .await?;
     Ok(())
 }
@@ -177,13 +186,16 @@ pub async fn js(cx: PoiseContext<'_>, block: CodeBlockOrRest) -> anyhow::Result<
         .send_timeout(HostMessage::Eval(code), MAX_TIME, TimeoutAction::Restart)
         .await?;
 
-    cx.say(util::codeblock_with_lang(
-        "js",
-        match &message {
-            Ok(x) => x,
-            Err(x) => x,
-        },
-    ))
+    reply(
+        &cx,
+        util::codeblock_with_lang(
+            "js",
+            match &message {
+                Ok(x) => x,
+                Err(x) => x,
+            },
+        ),
+    )
     .await?;
 
     Ok(())
@@ -224,7 +236,7 @@ pub async fn info(cx: PoiseContext<'_>) -> anyhow::Result<()> {
         output
     };
 
-    cx.say(output).await?;
+    reply(&cx, output).await?;
 
     Ok(())
 }
@@ -241,7 +253,7 @@ pub async fn fuzzy(cx: PoiseContext<'_>, query: String, search: String) -> anyho
         result.matched_indices().join(", ")
     );
 
-    cx.say(message).await?;
+    reply(&cx, message).await?;
     Ok(())
 }
 
@@ -252,7 +264,7 @@ pub async fn find(cx: PoiseContext<'_>, query: String) -> anyhow::Result<()> {
         let _ = write!(prev, "{}: {}\n", score, path);
         prev
     });
-    cx.say(msg).await?;
+    reply(&cx, msg).await?;
     Ok(())
 }
 
@@ -261,6 +273,6 @@ pub async fn docs(cx: PoiseContext<'_>, query: String) -> anyhow::Result<()> {
     let docs = &cx.data().docs;
     let (_, _, docs) = docs.find(&query).next().context("Nothing found!")?;
 
-    cx.say(docs).await?;
+    reply(&cx, docs.into()).await?;
     Ok(())
 }
