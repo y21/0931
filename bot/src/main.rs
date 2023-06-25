@@ -31,6 +31,7 @@ async fn main() -> anyhow::Result<()> {
         .options(FrameworkOptions {
             allowed_mentions: None,
             prefix_options: PrefixFrameworkOptions {
+                ignore_bots: false,
                 prefix: Some(prefix),
                 edit_tracker: Some(EditTracker::for_timespan(Duration::from_secs(3600))),
                 ..Default::default()
