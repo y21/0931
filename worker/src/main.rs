@@ -4,7 +4,6 @@ use anyhow::anyhow;
 use anyhow::bail;
 use dash_vm::eval::EvalError;
 use dash_vm::gc::persistent::Persistent;
-use dash_vm::local::LocalScope;
 use dash_vm::params::VmParams;
 use dash_vm::value::object::Object;
 use dash_vm::value::ops::abstractions::conversions::ValueConversion;
@@ -20,7 +19,7 @@ fn fmt_value(
     value: Value,
     vm: &mut Vm,
 ) -> anyhow::Result<String> {
-    let sc = &mut LocalScope::new(vm);
+    let sc = &mut vm.scope();
     let result = match inspect.apply(sc, Value::undefined(), vec![value]) {
         Ok(v) => v,
         Err(_) => bail!("inspect function threw an exception"),
@@ -52,19 +51,23 @@ async fn main() -> anyhow::Result<()> {
                                 .unwrap())
                         });
                     let mut vm = Vm::new(params);
+                    let scope = &mut vm.scope();
                     let inspect = {
                         const INSPECT_CODE: &str = include_str!("../js/inspect.js");
-                        let mut sc = LocalScope::new(&mut vm);
-                        let Value::Object(inspect) = sc.eval(INSPECT_CODE, Default::default()).unwrap() else {
+                        let Value::Object(inspect) = scope
+                            .eval(INSPECT_CODE, Default::default())
+                            .unwrap()
+                            .root(scope)
+                        else {
                             unreachable!()
                         };
 
-                        Persistent::new(inspect)
+                        Persistent::new(scope, inspect)
                     };
 
-                    let output = match vm.eval(&code, Default::default()) {
+                    let output = match scope.eval(&code, Default::default()) {
                         Ok(v) | Err(EvalError::Exception(v)) => {
-                            fmt_value(&inspect, v, &mut vm).map_err(|err| err.to_string())
+                            fmt_value(&inspect, v.root(scope), scope).map_err(|err| err.to_string())
                         }
                         Err(err) => Err(err.to_string()),
                     };
