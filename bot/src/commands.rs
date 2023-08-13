@@ -90,7 +90,7 @@ pub async fn clippy(cx: PoiseContext<'_>, block: CodeBlockOrRest) -> anyhow::Res
     Ok(())
 }
 
-/// Runs a codeblock under clippy, a Rust linter
+/// Expands all macros
 #[poise::command(prefix_command, track_edits, broadcast_typing)]
 pub async fn expand(cx: PoiseContext<'_>, block: CodeBlockOrRest) -> anyhow::Result<()> {
     let response = playground::run_macro_expansion(&cx.data().reqwest, block.code).await?;
@@ -108,7 +108,7 @@ pub async fn godbolt(
 ) -> anyhow::Result<()> {
     let response =
         compile_any_lang(&cx.data().reqwest, block.into(), flags.map(|q| q.value)).await?;
-    reply(&cx, util::codeblock(&response.0)).await?;
+    reply(&cx, util::codeblock_with_lang("x86asm", &response.0)).await?;
 
     Ok(())
 }
@@ -146,7 +146,7 @@ pub async fn asm(cx: PoiseContext<'_>, blocks: Vec<CodeBlock>) -> anyhow::Result
 
     for block in blocks {
         let out = compile_any_lang(reqwest, block, None).await?;
-        output.push_str(&util::codeblock(&out.0));
+        output.push_str(&util::codeblock_with_lang("x86asm", &out.0));
     }
 
     reply(&cx, output).await?;
@@ -186,17 +186,12 @@ pub async fn js(cx: PoiseContext<'_>, block: CodeBlockOrRest) -> anyhow::Result<
         .send_timeout(HostMessage::Eval(code), MAX_TIME, TimeoutAction::Restart)
         .await?;
 
-    reply(
-        &cx,
-        util::codeblock_with_lang(
-            "js",
-            match &message {
-                Ok(x) => x,
-                Err(x) => x,
-            },
-        ),
-    )
-    .await?;
+    let (lang, message) = match message {
+        Ok(message) => ("js", message),
+        Err(message) => ("ansi", message),
+    };
+
+    reply(&cx, util::codeblock_with_lang(lang, &message)).await?;
 
     Ok(())
 }

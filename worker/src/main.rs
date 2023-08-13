@@ -2,6 +2,7 @@ use std::time::SystemTime;
 
 use anyhow::anyhow;
 use anyhow::bail;
+use dash_middle::parser::error::IntoFormattableErrors;
 use dash_vm::eval::EvalError;
 use dash_vm::gc::persistent::Persistent;
 use dash_vm::params::VmParams;
@@ -66,10 +67,12 @@ async fn main() -> anyhow::Result<()> {
                     };
 
                     let output = match scope.eval(&code, Default::default()) {
-                        Ok(v) | Err(EvalError::Exception(v)) => {
+                        Ok(v) | Err((EvalError::Exception(v), _)) => {
                             fmt_value(&inspect, v.root(scope), scope).map_err(|err| err.to_string())
                         }
-                        Err(err) => Err(err.to_string()),
+                        Err((EvalError::Middle(middle), interner)) => {
+                            Err(middle.formattable(&interner, &code, true).to_string())
+                        }
                     };
 
                     if tx.send(ClientMessage::EvalResponse(output)).is_err() {

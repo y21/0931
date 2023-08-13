@@ -90,5 +90,9 @@ pub async fn get_asm<T: CompileTarget>(
         .text()
         .await?;
 
-    Ok(GodboltResponse(util::strip_ansi(&response).into_owned()))
+    let mut response = util::strip_ansi(&response).into_owned();
+    assert!(response.starts_with("# Compilation")); // if this fails, the API changed and we need to fix this either way
+    response.drain(..response.find('\n').unwrap() + 1);
+
+    Ok(GodboltResponse(response))
 }
