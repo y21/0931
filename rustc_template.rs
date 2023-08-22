@@ -5,6 +5,7 @@
 // but also with access to rustc internals.
 
 #![feature(rustc_private)]
+#![allow(dead_code)]
 
 extern crate rustc_ast_pretty;
 extern crate rustc_driver;
@@ -37,8 +38,7 @@ fn main() {
         },
         input: config::Input::Str {
             name: source_map::FileName::Custom("main.rs".to_string()),
-            input: r####"/*{{input}}*/"####,
-            .to_string(),
+            input: r####"/*{{input}}*/"####.to_string(),
         },
         crate_cfg: rustc_hash::FxHashSet::default(),
         crate_check_cfg: CheckCfg::default(),
