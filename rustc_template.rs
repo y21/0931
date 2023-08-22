@@ -61,7 +61,7 @@ fn main() {
                 let hir = tcx.hir();
                 let krate = hir.krate();
                 println!("{:#?}", { /*{{code}}*/ });
-            })
+            });
         });
     });
 }

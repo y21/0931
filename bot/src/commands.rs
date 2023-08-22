@@ -366,9 +366,7 @@ pub async fn rustc(
     let mut output = String::from_utf8_lossy(&program_output.stderr).into_owned();
     output += String::from_utf8_lossy(&program_output.stdout).as_ref();
 
-    reply(&cx, output).await?;
-
-    // TODO: cleanup!!!
+    reply(&cx, codeblock(&output)).await?;
 
     Ok(())
 }
