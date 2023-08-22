@@ -1,6 +1,8 @@
+use std::process::Output;
 use std::time::Duration;
 
 use anyhow::bail;
+use anyhow::ensure;
 use anyhow::Context;
 use human_size::Byte;
 use human_size::Megabyte;
@@ -15,6 +17,9 @@ use std::fmt::Write;
 use sublime_fuzzy::best_match;
 use sysinfo::CpuExt;
 use sysinfo::SystemExt;
+use tokio::fs;
+use tokio::process::Command;
+use tracing::error;
 
 use crate::godbolt;
 use crate::godbolt::languages::Rust;
@@ -23,6 +28,7 @@ use crate::godbolt::GodboltResponse;
 use crate::playground;
 use crate::state::State;
 use crate::util;
+use crate::util::codeblock;
 use crate::util::CodeBlockOrRest;
 use crate::util::MaybeQuoted;
 use crate::PoiseContext;
@@ -270,4 +276,103 @@ pub async fn docs(cx: PoiseContext<'_>, query: String) -> anyhow::Result<()> {
 
     reply(&cx, docs.into()).await?;
     Ok(())
+}
+
+#[poise::command(prefix_command, track_edits, check = "owner_check")]
+pub async fn rustc(
+    cx: PoiseContext<'_>,
+    src: CodeBlock,
+    code: CodeBlockOrRest,
+) -> anyhow::Result<()> {
+    // We specifically only allow one rustc invocation at a time for now,
+    // because all of this would otherwise be very racy. We'd probably
+    // need a separate folder etc. grouped by message ID,
+    // but there's no point because it already locks up the CPU anyway
+    let _guard = cx.data().rustc_lock.lock().await;
+
+    // TODO: flags!
+    let Output {
+        status,
+        stdout,
+        stderr,
+    } = Command::new("docker")
+        .args(["run", "-d", "-t", "rustc", "bash"])
+        .output()
+        .await
+        .context("Failed to create docker container")?;
+
+    let container_id = if status.success() {
+        std::str::from_utf8(&stdout)
+            .context("Invalid UTF-8 in `docker run`")?
+            .trim_end()
+    } else {
+        error!("Docker run failed: {:?}", stderr);
+        bail!("`docker run` exited with non-zero status code.");
+    };
+
+    const RUSTC_TEMPLATE: &str = include_str!("../../rustc_template.rs");
+
+    fs::write(
+        "__program_to_copy.rs",
+        RUSTC_TEMPLATE
+            .replace("/*{{input}}*/", &src.code)
+            .replace("/*{{code}}*/", &code.code),
+    )
+    .await?;
+
+    ensure!(
+        Command::new("docker")
+            .args([
+                "cp",
+                "__program_to_copy.rs",
+                &format!("{container_id}:/home/main.rs"),
+            ])
+            .status()
+            .await
+            .is_ok_and(|e| e.success()),
+        "Failed to copy program to docker container"
+    );
+
+    let compiler_output = Command::new("docker")
+        .args(["exec", container_id, "rustc", "/home/main.rs"])
+        .output()
+        .await
+        .context("Failed to spawn docker exec command")?;
+
+    if !compiler_output.status.success() {
+        let stderr = String::from_utf8_lossy(&compiler_output.stderr);
+        let stdout = String::from_utf8_lossy(&compiler_output.stdout);
+        reply(
+            &cx,
+            format!(
+                "Compiler error:\n\nstderr:\n{}\n\nstdout:\n{}",
+                codeblock(&stderr),
+                codeblock(&stdout)
+            ),
+        )
+        .await?;
+
+        return Ok(());
+    }
+
+    let program_output = Command::new("docker").args([
+        "exec",
+        container_id,
+        "bash",
+        "-c",
+        "LD_LIBRARY_PATH=/usr/local/rustup/toolchains/nightly-aarch64-unknown-linux-gnu/lib /main",
+    ]).output().await.context("Failed to launch program in container")?;
+
+    let mut output = String::from_utf8_lossy(&program_output.stderr).into_owned();
+    output += String::from_utf8_lossy(&program_output.stdout).as_ref();
+
+    reply(&cx, output).await?;
+
+    // TODO: cleanup!!!
+
+    Ok(())
+}
+
+async fn owner_check(cx: PoiseContext<'_>) -> anyhow::Result<bool> {
+    Ok(cx.author().id == 312715611413413889)
 }

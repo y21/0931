@@ -12,6 +12,7 @@ use sysinfo::System;
 use sysinfo::SystemExt;
 use tokio::fs;
 use tokio::net::UnixListener;
+use tokio::sync::Mutex as AsyncMutex;
 
 use crate::util;
 
@@ -50,6 +51,7 @@ impl Docs {
 }
 
 pub struct State {
+    pub rustc_lock: AsyncMutex<()>,
     pub workers: WorkerSet<UnixListener, ClientMessage, HostMessage>,
     pub reqwest: Client,
     pub system: Mutex<System>,
@@ -63,6 +65,7 @@ impl State {
         let docs = Docs::from_path("doc.bin").await?;
 
         Ok(Self {
+            rustc_lock: AsyncMutex::new(()),
             workers: WorkerSet::builder().worker_path(path).finish().await?,
             reqwest: Client::new(),
             system: Mutex::new(System::new_with_specifics(

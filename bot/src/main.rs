@@ -52,6 +52,7 @@ async fn main() -> anyhow::Result<()> {
                 commands::clippy(),
                 commands::expand(),
                 commands::godbolt(),
+                commands::rustc(),
             ],
             ..Default::default()
         })
