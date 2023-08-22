@@ -5,7 +5,7 @@
 // but also with access to rustc internals.
 
 #![feature(rustc_private)]
-#![allow(dead_code)]
+#![allow(dead_code, unused_imports)]
 
 extern crate rustc_ast_pretty;
 extern crate rustc_driver;
@@ -59,7 +59,8 @@ fn main() {
             let ast = queries.parse().unwrap().get_mut().clone();
             queries.global_ctxt().unwrap().enter(|tcx| {
                 let hir = tcx.hir();
-                /*{{code}}*/
+                let krate = hir.krate();
+                println!("{:#?}", { /*{{code}}*/ });
             })
         });
     });
