@@ -1,10 +1,6 @@
-// This was mostly ~~stolen~~ taken from
-// https://rustc-dev-guide.rust-lang.org/rustc-driver-interacting-with-the-ast.html
-
 // We have a command for running code, similar to the regular rust playground,
 // but also with access to rustc internals.
-
-#![feature(rustc_private)]
+#![feature(rustc_private, let_chains, box_patterns)]
 #![allow(dead_code, unused_imports)]
 
 extern crate rustc_ast_pretty;
@@ -14,6 +10,7 @@ extern crate rustc_errors;
 extern crate rustc_hash;
 extern crate rustc_hir;
 extern crate rustc_interface;
+extern crate rustc_middle;
 extern crate rustc_session;
 extern crate rustc_span;
 
@@ -21,8 +18,19 @@ use std::{path, process, str};
 
 use rustc_ast_pretty::pprust::item_to_string;
 use rustc_errors::registry;
+use rustc_hir as hir;
+use rustc_middle::{
+    hir::map::Map,
+    mir,
+    ty::{self, Ty, TyCtxt, TypeckResults},
+};
 use rustc_session::config::{self, CheckCfg};
-use rustc_span::source_map;
+use rustc_span::{source_map, Span};
+
+struct Context<'tcx> {
+    tcx: TyCtxt<'tcx>,
+    typeck_results: &'tcx TypeckResults<'tcx>,
+}
 
 fn main() {
     let out = process::Command::new("rustc")
@@ -51,7 +59,7 @@ fn main() {
         register_lints: None,
         override_queries: None,
         make_codegen_backend: None,
-        registry: registry::Registry::new(&rustc_error_codes::DIAGNOSTICS),
+        registry: registry::Registry::new(rustc_error_codes::DIAGNOSTICS),
         ice_file: None,
     };
     rustc_interface::run_compiler(config, |compiler| {
@@ -64,4 +72,81 @@ fn main() {
             });
         });
     });
+}
+
+fn for_each_item_in_crate<'tcx>(
+    tcx: TyCtxt<'tcx>,
+    cb: impl FnMut(TyCtxt<'tcx>, &'tcx hir::Item<'tcx>),
+) {
+    struct ItemVisitor<'tcx, F> {
+        tcx: TyCtxt<'tcx>,
+        cb: F,
+    }
+    impl<'tcx, F> hir::intravisit::Visitor<'tcx> for ItemVisitor<'tcx, F>
+    where
+        F: FnMut(TyCtxt<'tcx>, &'tcx hir::Item<'tcx>),
+    {
+        type NestedFilter = rustc_middle::hir::nested_filter::All;
+        fn nested_visit_map(&mut self) -> Self::Map {
+            self.tcx.hir()
+        }
+        fn visit_item(&mut self, item: &'tcx hir::Item<'tcx>) {
+            (self.cb)(self.tcx, item);
+            hir::intravisit::walk_item(self, item);
+        }
+    }
+
+    let mut vis = ItemVisitor { tcx, cb };
+    let hir = tcx.hir();
+    for item in hir.items() {
+        hir::intravisit::Visitor::visit_item(&mut vis, hir.item(item));
+    }
+}
+
+fn for_each_expr_in_crate<'tcx>(
+    tcx: TyCtxt<'tcx>,
+    cb: impl FnMut(Context<'tcx>, &rustc_hir::Expr<'tcx>),
+) {
+    struct ExprVisitor<'tcx, F> {
+        tcx: TyCtxt<'tcx>,
+        // stack
+        typeck: Vec<&'tcx TypeckResults<'tcx>>,
+        cb: F,
+    }
+    impl<'tcx, F> hir::intravisit::Visitor<'tcx> for ExprVisitor<'tcx, F>
+    where
+        F: FnMut(Context<'tcx>, &hir::Expr<'tcx>),
+    {
+        type NestedFilter = rustc_middle::hir::nested_filter::All;
+        fn nested_visit_map(&mut self) -> Self::Map {
+            self.tcx.hir()
+        }
+        fn visit_expr(&mut self, ex: &'tcx hir::Expr<'tcx>) {
+            (self.cb)(
+                Context {
+                    tcx: self.tcx,
+                    typeck_results: self.typeck.last().unwrap(),
+                },
+                ex,
+            );
+            hir::intravisit::walk_expr(self, ex);
+        }
+        fn visit_body(&mut self, b: &'tcx hir::Body<'tcx>) {
+            let id = self.tcx.hir().body_owner_def_id(b.id());
+            let results = self.tcx.typeck(id);
+            self.typeck.push(results);
+            hir::intravisit::walk_body(self, b);
+            self.typeck.pop();
+        }
+    }
+
+    let mut vis = ExprVisitor {
+        tcx,
+        cb,
+        typeck: Vec::new(),
+    };
+    let hir = tcx.hir();
+    for item in hir.items() {
+        hir::intravisit::walk_item(&mut vis, hir.item(item));
+    }
 }

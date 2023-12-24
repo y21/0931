@@ -7,7 +7,9 @@ use dash_vm::eval::EvalError;
 use dash_vm::gc::persistent::Persistent;
 use dash_vm::params::VmParams;
 use dash_vm::value::object::Object;
-use dash_vm::value::ops::abstractions::conversions::ValueConversion;
+use dash_vm::value::ops::conversions::ValueConversion;
+use dash_vm::value::root_ext::RootOkExt;
+use dash_vm::value::Root;
 use dash_vm::value::Value;
 use dash_vm::Vm;
 use ipc2_worker::Job;
@@ -21,7 +23,10 @@ fn fmt_value(
     vm: &mut Vm,
 ) -> anyhow::Result<String> {
     let sc = &mut vm.scope();
-    let result = match inspect.apply(sc, Value::undefined(), vec![value]) {
+    let result = match inspect
+        .apply(sc, Value::undefined(), vec![value])
+        .root_ok(sc)
+    {
         Ok(v) => v,
         Err(_) => bail!("inspect function threw an exception"),
     };
@@ -70,8 +75,8 @@ async fn main() -> anyhow::Result<()> {
                         Ok(v) | Err((EvalError::Exception(v), _)) => {
                             fmt_value(&inspect, v.root(scope), scope).map_err(|err| err.to_string())
                         }
-                        Err((EvalError::Middle(middle), interner)) => {
-                            Err(middle.formattable(&interner, &code, true).to_string())
+                        Err((EvalError::Middle(middle), _)) => {
+                            Err(middle.formattable(&code, true).to_string())
                         }
                     };
 
