@@ -31,8 +31,8 @@ fn fmt_value(
         Err(_) => bail!("inspect function threw an exception"),
     };
 
-    match result.to_string(sc) {
-        Ok(v) => Ok(String::from(&*v)),
+    match result.to_js_string(sc) {
+        Ok(v) => Ok(v.res(sc).to_owned()),
         Err(_) => Err(anyhow!("failed to convert inspected value to a string")),
     }
 }
@@ -72,10 +72,10 @@ async fn main() -> anyhow::Result<()> {
                     };
 
                     let output = match scope.eval(&code, Default::default()) {
-                        Ok(v) | Err((EvalError::Exception(v), _)) => {
+                        Ok(v) | Err(EvalError::Exception(v)) => {
                             fmt_value(&inspect, v.root(scope), scope).map_err(|err| err.to_string())
                         }
-                        Err((EvalError::Middle(middle), _)) => {
+                        Err(EvalError::Middle(middle)) => {
                             Err(middle.formattable(&code, true).to_string())
                         }
                     };
