@@ -6,7 +6,15 @@ pub enum ClientMessage {
     EvalResponse(Result<String, String>),
 }
 
+#[derive(Deserialize, Serialize, Copy, Clone)]
+pub enum Opt {
+    None,
+    Basic,
+    Aggressive,
+}
+
 #[derive(Deserialize, Serialize)]
 pub enum HostMessage {
-    Eval(String),
+    Eval(String, Opt),
+    DumpIr(String, Opt),
 }

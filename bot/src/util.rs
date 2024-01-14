@@ -165,12 +165,11 @@ impl<'a> PopArgument<'a> for MaybeQuoted {
                 },
             ))
         } else {
-            let arg = args.split_ascii_whitespace().next().unwrap_or(args);
             Ok((
-                &args[arg.len() + 1..],
+                args,
                 attachment_index,
                 MaybeQuoted {
-                    value: args[..arg.len()].to_string(),
+                    value: String::new(),
                 },
             ))
         }

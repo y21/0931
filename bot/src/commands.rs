@@ -180,16 +180,47 @@ pub async fn asmdiff(
 
 const MAX_TIME: Duration = Duration::from_secs(5);
 
+enum Mode {
+    Ir,
+    Eval,
+}
+
 /// Executes JavaScript code
 #[poise::command(prefix_command, track_edits)]
-pub async fn js(cx: PoiseContext<'_>, block: CodeBlockOrRest) -> anyhow::Result<()> {
+pub async fn js(
+    cx: PoiseContext<'_>,
+    flags: Option<MaybeQuoted>,
+    block: CodeBlockOrRest,
+) -> anyhow::Result<()> {
     let CodeBlockOrRest { code, .. } = block;
     tracing::info!(%code, "Send JS code to worker");
+
+    let mut opt = shared::Opt::Basic;
+    let mut mode = Mode::Eval;
+    let flags = flags.map(|v| v.value).unwrap_or_default();
+    for flag in flags.split_ascii_whitespace() {
+        if let Some(flag) = flag.strip_prefix('-') {
+            match flag {
+                "O0" => opt = shared::Opt::None,
+                "O1" => opt = shared::Opt::Basic,
+                "O2" => opt = shared::Opt::Aggressive,
+                "ir" => mode = Mode::Ir,
+                _ => bail!("unknown flag {flag}"),
+            }
+        }
+    }
 
     let ClientMessage::EvalResponse(message) = cx
         .data()
         .workers
-        .send_timeout(HostMessage::Eval(code), MAX_TIME, TimeoutAction::Restart)
+        .send_timeout(
+            match mode {
+                Mode::Eval => HostMessage::Eval(code, opt),
+                Mode::Ir => HostMessage::DumpIr(code, opt),
+            },
+            MAX_TIME,
+            TimeoutAction::Restart,
+        )
         .await?;
 
     let (lang, message) = match message {

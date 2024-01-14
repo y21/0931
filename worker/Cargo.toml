@@ -9,6 +9,9 @@ edition = "2021"
 anyhow = "1.0.70"
 dash_vm = { git = "https://github.com/y21/dash" }
 dash_middle = { git = "https://github.com/y21/dash" }
+dash_optimizer = { git = "https://github.com/y21/dash" }
+dash_compiler = { git = "https://github.com/y21/dash" }
+dash_decompiler = { git = "https://github.com/y21/dash" }
 ipc2_worker = { git = "https://github.com/y21/ipc2", version = "0.1.0" }
 rand = "0.8.5"
 shared = { path = "../shared" }
